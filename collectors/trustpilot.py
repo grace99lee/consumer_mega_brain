@@ -5,33 +5,14 @@ import json
 import logging
 import random
 import re
-
-import httpx
-from bs4 import BeautifulSoup
+from datetime import datetime
 
 from collectors.base import BaseCollector
+from collectors.playwright_utils import run_in_playwright_thread, stealth_browser
 from config.settings import Settings
 from models.schemas import Review, SourceType
 
 logger = logging.getLogger(__name__)
-
-_UA_LIST = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-]
-
-
-def _make_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        headers={
-            "User-Agent": random.choice(_UA_LIST),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-        },
-        timeout=30,
-        follow_redirects=True,
-    )
 
 
 class TrustpilotCollector(BaseCollector):
@@ -41,77 +22,93 @@ class TrustpilotCollector(BaseCollector):
         return True
 
     async def collect(self, query: str, max_results: int = 200) -> list[Review]:
+        return await run_in_playwright_thread(
+            lambda: self._collect_playwright(query, max_results)
+        )
+
+    async def _collect_playwright(self, query: str, max_results: int) -> list[Review]:
         reviews: list[Review] = []
 
-        try:
-            async with _make_client() as client:
-                biz_urls = await self._search_businesses(client, query)
-                logger.debug("Found %d Trustpilot businesses for query: %s", len(biz_urls), query)
+        async with stealth_browser() as (browser, context):
+            page = await context.new_page()
+            try:
+                # Search for businesses matching the query
+                search_url = f"https://www.trustpilot.com/search?query={query.replace(' ', '+')}"
+                logger.debug("Trustpilot search: %s", search_url)
+
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(1.5, 2.5))
+
+                biz_urls = await self._extract_business_urls(page)
+                logger.debug("Found %d Trustpilot businesses for: %s", len(biz_urls), query)
+
+                if not biz_urls:
+                    logger.warning("Trustpilot: no businesses found for query '%s'", query)
+                    return []
 
                 for biz_url in biz_urls[:5]:
                     if len(reviews) >= max_results:
                         break
                     try:
-                        batch = await self._scrape_business_reviews(client, biz_url, max_results - len(reviews))
+                        batch = await self._scrape_business(page, biz_url, max_results - len(reviews))
                         reviews.extend(batch)
                         logger.debug("Got %d reviews from %s", len(batch), biz_url)
-                    except Exception:
-                        logger.debug("Failed to scrape %s", biz_url)
-                    await asyncio.sleep(random.uniform(1.5, 3))
+                    except Exception as exc:
+                        logger.warning("Trustpilot: failed to scrape %s — %s", biz_url, exc)
+                    await asyncio.sleep(random.uniform(1, 2))
 
-        except Exception:
-            logger.exception("Error collecting Trustpilot data for query: %s", query)
+            except Exception:
+                logger.exception("Trustpilot collection failed for query: %s", query)
+            finally:
+                await page.close()
 
         logger.info("Collected %d reviews from Trustpilot", len(reviews))
         return reviews[:max_results]
 
-    async def _search_businesses(self, client: httpx.AsyncClient, query: str) -> list[str]:
-        url = f"https://www.trustpilot.com/search?query={query.replace(' ', '+')}"
+    async def _extract_business_urls(self, page) -> list[str]:
+        """Pull business review URLs from the search results page."""
+        # Try __NEXT_DATA__ first
         try:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return []
+            content = await page.content()
+            match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', content, re.DOTALL)
+            if match:
+                data = json.loads(match.group(1))
+                business_units = (
+                    data.get("props", {})
+                    .get("pageProps", {})
+                    .get("businessUnits", [])
+                )
+                if business_units:
+                    urls = []
+                    for bu in business_units[:5]:
+                        slug = bu.get("identifyingName") or bu.get("name", "").replace(" ", "")
+                        if slug:
+                            urls.append(f"https://www.trustpilot.com/review/{slug}")
+                    if urls:
+                        return urls
+        except Exception:
+            pass
 
-            soup = BeautifulSoup(resp.text, "lxml")
-
-            # Try __NEXT_DATA__ JSON embedded in page
-            next_data_el = soup.find("script", id="__NEXT_DATA__")
-            if next_data_el and next_data_el.string:
-                try:
-                    data = json.loads(next_data_el.string)
-                    business_units = (
-                        data.get("props", {})
-                        .get("pageProps", {})
-                        .get("businessUnits", [])
-                    )
-                    if business_units:
-                        urls = []
-                        for bu in business_units[:5]:
-                            slug = bu.get("identifyingName") or bu.get("name", "").replace(" ", "")
-                            if slug:
-                                urls.append(f"https://www.trustpilot.com/review/{slug}")
-                        if urls:
-                            return urls
-                except Exception:
-                    pass
-
-            # Fallback: extract /review/ slugs from page HTML
-            slugs = re.findall(r'href="/review/([\w.\-]+)"', resp.text)
+        # Fallback: find /review/ links in the page HTML
+        try:
+            links = await page.eval_on_selector_all(
+                'a[href*="/review/"]',
+                'els => els.map(e => e.href)'
+            )
             seen: set[str] = set()
             unique: list[str] = []
-            for s in slugs:
-                if s not in seen:
-                    seen.add(s)
-                    unique.append(s)
-            return [f"https://www.trustpilot.com/review/{s}" for s in unique[:5]]
-
+            for link in links:
+                clean = re.sub(r'\?.*$', '', link)  # strip query params
+                if clean not in seen and "/review/" in clean:
+                    seen.add(clean)
+                    unique.append(clean)
+            return unique[:5]
         except Exception:
-            logger.debug("Trustpilot search failed")
-            return []
+            pass
 
-    async def _scrape_business_reviews(
-        self, client: httpx.AsyncClient, biz_url: str, max_reviews: int
-    ) -> list[Review]:
+        return []
+
+    async def _scrape_business(self, page, biz_url: str, max_reviews: int) -> list[Review]:
         reviews: list[Review] = []
         business_name = ""
 
@@ -121,17 +118,16 @@ class TrustpilotCollector(BaseCollector):
 
             url = biz_url if page_num == 1 else f"{biz_url}?page={page_num}"
             try:
-                resp = await client.get(url)
-                if resp.status_code != 200:
-                    break
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(1, 2))
 
-                soup = BeautifulSoup(resp.text, "lxml")
+                content = await page.content()
 
-                # Try __NEXT_DATA__ first (most reliable)
-                next_data_el = soup.find("script", id="__NEXT_DATA__")
-                if next_data_el and next_data_el.string:
+                # Try __NEXT_DATA__ (most reliable)
+                match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', content, re.DOTALL)
+                if match:
                     try:
-                        data = json.loads(next_data_el.string)
+                        data = json.loads(match.group(1))
                         page_props = data.get("props", {}).get("pageProps", {})
 
                         if page_num == 1:
@@ -154,13 +150,22 @@ class TrustpilotCollector(BaseCollector):
                             except (TypeError, ValueError):
                                 pass
 
+                            date = None
+                            try:
+                                dates = r.get("dates") or {}
+                                published = dates.get("publishedDate") or r.get("dates", {}).get("publishedDate")
+                                if published:
+                                    date = datetime.fromisoformat(published.replace("Z", "+00:00"))
+                            except Exception:
+                                pass
+
                             reviews.append(Review(
                                 id=f"trustpilot_{r.get('id', len(reviews))}",
                                 source=SourceType.TRUSTPILOT,
                                 author=(r.get("consumer") or {}).get("displayName"),
                                 text=full_text,
                                 rating=rating,
-                                date=None,
+                                date=date,
                                 url=biz_url,
                                 product_name=business_name or None,
                                 metadata={"type": "review"},
@@ -169,53 +174,54 @@ class TrustpilotCollector(BaseCollector):
                                 break
 
                         if review_list:
-                            await asyncio.sleep(random.uniform(1, 2))
                             continue
 
                     except Exception:
                         pass
 
-                # HTML fallback
+                # HTML fallback — find review cards via Playwright selectors
                 if page_num == 1 and not business_name:
-                    h1 = soup.select_one("h1")
-                    if h1:
-                        business_name = h1.get_text(strip=True)
+                    try:
+                        h1 = await page.query_selector("h1")
+                        if h1:
+                            business_name = (await h1.inner_text()).strip()
+                    except Exception:
+                        pass
 
-                review_cards = soup.select('article[class*="review"]')
-                if not review_cards:
+                cards = await page.query_selector_all('article[class*="review"], [data-service-review-card]')
+                if not cards:
                     break
 
-                for card in review_cards:
-                    text_el = card.select_one(
-                        '[data-service-review-text-typography], p[class*="content"], .review-content p'
-                    )
-                    text = text_el.get_text(strip=True) if text_el else ""
-                    if len(text) < 10:
+                for card in cards:
+                    try:
+                        text_el = await card.query_selector(
+                            '[data-service-review-text-typography], p[class*="content"]'
+                        )
+                        text = (await text_el.inner_text()).strip() if text_el else ""
+                        if len(text) < 10:
+                            continue
+
+                        author_el = await card.query_selector('[data-consumer-name-typography]')
+                        author = (await author_el.inner_text()).strip() if author_el else None
+
+                        reviews.append(Review(
+                            id=f"trustpilot_{business_name[:20]}_{len(reviews)}",
+                            source=SourceType.TRUSTPILOT,
+                            author=author,
+                            text=text,
+                            rating=None,
+                            date=None,
+                            url=url,
+                            product_name=business_name or None,
+                            metadata={"type": "review"},
+                        ))
+                        if len(reviews) >= max_reviews:
+                            break
+                    except Exception:
                         continue
 
-                    author_el = card.select_one(
-                        '[data-consumer-name-typography], [class*="consumerName"]'
-                    )
-                    author = author_el.get_text(strip=True) if author_el else None
-
-                    reviews.append(Review(
-                        id=f"trustpilot_{business_name[:20]}_{len(reviews)}",
-                        source=SourceType.TRUSTPILOT,
-                        author=author,
-                        text=text,
-                        rating=None,
-                        date=None,
-                        url=url,
-                        product_name=business_name or None,
-                        metadata={"type": "review"},
-                    ))
-                    if len(reviews) >= max_reviews:
-                        break
-
-                await asyncio.sleep(random.uniform(1, 2))
-
-            except Exception:
-                logger.debug("Trustpilot fetch failed for %s page %d", biz_url, page_num)
+            except Exception as exc:
+                logger.warning("Trustpilot page %d failed for %s: %s", page_num, biz_url, exc)
                 break
 
         return reviews
