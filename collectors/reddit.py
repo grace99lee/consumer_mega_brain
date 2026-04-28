@@ -3,230 +3,170 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import re
 from datetime import datetime, timezone
 
-import httpx
-
 from collectors.base import BaseCollector
+from collectors.playwright_utils import run_in_playwright_thread, stealth_browser
 from config.settings import Settings
 from models.schemas import Review, SourceType
 
 logger = logging.getLogger(__name__)
-
-_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language": "en-US,en;q=0.9",
-}
-_BASE = "https://www.reddit.com"
 
 
 class RedditCollector(BaseCollector):
     source_type = SourceType.REDDIT
 
     def is_available(self) -> bool:
-        return True  # Always try; PRAW used when credentials are set
+        return True
 
     async def collect(self, query: str, max_results: int = 200) -> list[Review]:
-        """Use PRAW (OAuth) when credentials are configured, else fall back to public API."""
-        if self.settings.has_reddit():
-            logger.info("Reddit: using PRAW (OAuth) collection")
-            return await asyncio.to_thread(self._collect_praw, query, max_results)
-        else:
-            logger.info("Reddit: using public JSON API (add REDDIT_CLIENT_ID/SECRET for better cloud results)")
-            return await self._collect_httpx(query, max_results)
-
-    # --- PRAW (OAuth) — works reliably from cloud IPs ---
-
-    def _collect_praw(self, query: str, max_results: int) -> list[Review]:
-        import praw
-
-        reddit = praw.Reddit(
-            client_id=self.settings.reddit_client_id,
-            client_secret=self.settings.reddit_client_secret,
-            user_agent=self.settings.reddit_user_agent,
+        return await run_in_playwright_thread(
+            lambda: self._collect_playwright(query, max_results)
         )
 
+    async def _collect_playwright(self, query: str, max_results: int) -> list[Review]:
         reviews: list[Review] = []
         seen_ids: set[str] = set()
 
-        try:
-            results = reddit.subreddit("all").search(
-                query, sort="relevance", time_filter="year", limit=min(max_results, 100)
-            )
-            for post in results:
-                if len(reviews) >= max_results:
-                    break
+        async with stealth_browser() as (browser, context):
+            page = await context.new_page()
+            try:
+                search_url = (
+                    f"https://www.reddit.com/search/?q={query.replace(' ', '+')}"
+                    f"&sort=relevance&t=year&type=link"
+                )
+                logger.debug("Reddit search: %s", search_url)
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(2, 3))
 
-                # Post body
-                if post.selftext and post.selftext not in ("[deleted]", "[removed]") and len(post.selftext) > 20:
-                    r = Review(
-                        id=f"reddit_post_{post.id}",
-                        source=SourceType.REDDIT,
-                        author=str(post.author) if post.author else None,
-                        text=post.selftext,
-                        rating=None,
-                        date=datetime.fromtimestamp(post.created_utc, tz=timezone.utc),
-                        url=f"https://reddit.com{post.permalink}",
-                        product_name=None,
-                        metadata={
-                            "subreddit": str(post.subreddit),
-                            "title": post.title,
-                            "score": post.score,
-                            "num_comments": post.num_comments,
-                            "type": "post",
-                        },
-                    )
-                    if r.id not in seen_ids:
-                        reviews.append(r)
-                        seen_ids.add(r.id)
+                # Collect post links from search results
+                post_links = await self._extract_post_links(page)
+                logger.debug("Found %d Reddit post links", len(post_links))
 
-                # Top comments
-                try:
-                    post.comments.replace_more(limit=0)
-                    for comment in post.comments[:10]:
-                        if len(reviews) >= max_results:
-                            break
-                        body = getattr(comment, "body", "").strip()
-                        if not body or body in ("[deleted]", "[removed]") or len(body) < 20:
-                            continue
-                        r = Review(
-                            id=f"reddit_comment_{comment.id}",
-                            source=SourceType.REDDIT,
-                            author=str(comment.author) if comment.author else None,
-                            text=body,
-                            rating=None,
-                            date=datetime.fromtimestamp(comment.created_utc, tz=timezone.utc),
-                            url=f"https://reddit.com{post.permalink}",
-                            product_name=None,
-                            metadata={
-                                "subreddit": str(post.subreddit),
-                                "post_title": post.title,
-                                "score": comment.score,
-                                "type": "comment",
-                            },
-                        )
-                        if r.id not in seen_ids:
-                            reviews.append(r)
-                            seen_ids.add(r.id)
-                except Exception:
-                    pass
+                if not post_links:
+                    logger.warning("Reddit: no posts found for '%s'", query)
 
-        except Exception:
-            logger.exception("PRAW Reddit collection failed for: %s", query)
-
-        logger.info("Collected %d reviews from Reddit (PRAW)", len(reviews))
-        return reviews[:max_results]
-
-    # --- Public JSON API — works locally, may be blocked on cloud IPs ---
-
-    async def _collect_httpx(self, query: str, max_results: int) -> list[Review]:
-        reviews: list[Review] = []
-        seen_ids: set[str] = set()
-
-        try:
-            async with httpx.AsyncClient(headers=_HEADERS, timeout=20, follow_redirects=True) as client:
-                posts = await self._search_posts(client, query, min(max_results, 100))
-
-                for post in posts:
-                    data = post.get("data", {})
-                    post_id = data.get("id", "")
-
-                    selftext = data.get("selftext", "").strip()
-                    if selftext and selftext not in ("[deleted]", "[removed]") and len(selftext) > 20:
-                        review = self._post_to_review(data)
-                        if review.id not in seen_ids:
-                            reviews.append(review)
-                            seen_ids.add(review.id)
-
-                    if len(reviews) < max_results and post_id:
-                        try:
-                            comments = await self._fetch_comments(client, data.get("permalink", ""), post_id, data)
-                            for c in comments:
-                                if c.id not in seen_ids:
-                                    reviews.append(c)
-                                    seen_ids.add(c.id)
-                        except Exception:
-                            logger.debug("Could not fetch comments for post %s", post_id)
-
-                        await asyncio.sleep(random.uniform(0.5, 1.2))
-
+                for link in post_links[:15]:
                     if len(reviews) >= max_results:
                         break
+                    try:
+                        batch = await self._scrape_post(page, link, seen_ids)
+                        reviews.extend(batch)
+                        for r in batch:
+                            seen_ids.add(r.id)
+                    except Exception as exc:
+                        logger.debug("Reddit post failed %s: %s", link, exc)
+                    await asyncio.sleep(random.uniform(1, 2))
 
-        except Exception:
-            logger.exception("httpx Reddit collection failed for: %s", query)
+            except Exception:
+                logger.exception("Reddit collection failed for query: %s", query)
+            finally:
+                await page.close()
 
-        logger.info("Collected %d reviews from Reddit (httpx)", len(reviews))
+        logger.info("Collected %d reviews from Reddit", len(reviews))
         return reviews[:max_results]
 
-    async def _search_posts(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict]:
-        url = f"{_BASE}/search.json"
-        params = {"q": query, "sort": "relevance", "limit": min(limit, 100), "type": "link"}
+    async def _extract_post_links(self, page) -> list[str]:
+        """Pull post URLs from a Reddit search results page."""
         try:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            return resp.json().get("data", {}).get("children", [])
+            # New Reddit renders posts as <a> tags with /r/.../comments/ paths
+            links = await page.eval_on_selector_all(
+                'a[href*="/comments/"]',
+                'els => [...new Set(els.map(e => e.href))]'
+            )
+            # Keep only full reddit.com post URLs, strip query params
+            clean = []
+            seen: set[str] = set()
+            for link in links:
+                m = re.match(r'(https://www\.reddit\.com/r/[^/]+/comments/[^/?#]+)', link)
+                if m and m.group(1) not in seen:
+                    seen.add(m.group(1))
+                    clean.append(m.group(1))
+            return clean[:20]
         except Exception:
-            logger.warning("Reddit public API search failed (likely blocked on cloud IP) for: %s", query)
             return []
 
-    async def _fetch_comments(
-        self, client: httpx.AsyncClient, permalink: str, post_id: str, post_data: dict
-    ) -> list[Review]:
-        if not permalink:
-            return []
-        url = f"{_BASE}{permalink}.json"
+    async def _scrape_post(self, page, url: str, seen_ids: set[str]) -> list[Review]:
+        """Visit a Reddit post page and collect the selftext + top comments."""
+        reviews: list[Review] = []
+
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(random.uniform(1.5, 2.5))
+
+        # Extract post metadata from URL
+        # e.g. /r/AskReddit/comments/abc123/title_slug/
+        subreddit = ""
+        m = re.search(r'/r/([^/]+)/comments/', url)
+        if m:
+            subreddit = m.group(1)
+
+        post_title = ""
         try:
-            resp = await client.get(url, params={"limit": 20, "depth": 1, "sort": "top"})
-            resp.raise_for_status()
-            payload = resp.json()
-            if len(payload) < 2:
-                return []
-            comments = payload[1].get("data", {}).get("children", [])
-            reviews = []
-            for c in comments:
-                cdata = c.get("data", {})
-                body = cdata.get("body", "").strip()
-                if not body or body in ("[deleted]", "[removed]") or len(body) < 20:
+            h1 = await page.query_selector('h1')
+            if h1:
+                post_title = (await h1.inner_text()).strip()
+        except Exception:
+            pass
+
+        # Post body (selftext)
+        try:
+            body_el = await page.query_selector('[data-testid="post-container"] [data-click-id="text"]')
+            if not body_el:
+                body_el = await page.query_selector('.Post [data-click-id="text"]')
+            if body_el:
+                body = (await body_el.inner_text()).strip()
+                if len(body) > 30:
+                    post_id = re.search(r'/comments/([^/]+)/', url)
+                    rid = f"reddit_post_{post_id.group(1) if post_id else hash(url)}"
+                    if rid not in seen_ids:
+                        reviews.append(Review(
+                            id=rid,
+                            source=SourceType.REDDIT,
+                            author=None,
+                            text=body,
+                            rating=None,
+                            date=None,
+                            url=url,
+                            product_name=None,
+                            metadata={"subreddit": subreddit, "title": post_title, "type": "post"},
+                        ))
+        except Exception:
+            pass
+
+        # Comments
+        try:
+            comment_els = await page.query_selector_all('[data-testid="comment"]')
+            if not comment_els:
+                # Fallback selector for newer Reddit layout
+                comment_els = await page.query_selector_all('div[id^="t1_"]')
+
+            for i, el in enumerate(comment_els[:20]):
+                try:
+                    text_el = await el.query_selector('p, [data-click-id="text"]')
+                    if not text_el:
+                        continue
+                    text = (await text_el.inner_text()).strip()
+                    if len(text) < 20 or text in ("[deleted]", "[removed]"):
+                        continue
+
+                    cid = await el.get_attribute("id") or f"reddit_comment_{hash(url)}_{i}"
+                    rid = f"reddit_{cid}"
+                    if rid not in seen_ids:
+                        reviews.append(Review(
+                            id=rid,
+                            source=SourceType.REDDIT,
+                            author=None,
+                            text=text,
+                            rating=None,
+                            date=None,
+                            url=url,
+                            product_name=None,
+                            metadata={"subreddit": subreddit, "post_title": post_title, "type": "comment"},
+                        ))
+                except Exception:
                     continue
-                reviews.append(Review(
-                    id=f"reddit_comment_{cdata.get('id', '')}",
-                    source=SourceType.REDDIT,
-                    author=cdata.get("author"),
-                    text=body,
-                    rating=None,
-                    date=datetime.fromtimestamp(cdata["created_utc"], tz=timezone.utc) if cdata.get("created_utc") else None,
-                    url=f"https://reddit.com{permalink}",
-                    product_name=None,
-                    metadata={
-                        "subreddit": cdata.get("subreddit", ""),
-                        "post_title": post_data.get("title", ""),
-                        "score": cdata.get("score", 0),
-                        "type": "comment",
-                    },
-                ))
-            return reviews
         except Exception:
-            logger.debug("Failed to fetch comments from %s", permalink)
-            return []
+            pass
 
-    def _post_to_review(self, data: dict) -> Review:
-        created = data.get("created_utc")
-        return Review(
-            id=f"reddit_post_{data.get('id', '')}",
-            source=SourceType.REDDIT,
-            author=data.get("author"),
-            text=data.get("selftext", "").strip(),
-            rating=None,
-            date=datetime.fromtimestamp(created, tz=timezone.utc) if created else None,
-            url=f"https://reddit.com{data.get('permalink', '')}",
-            product_name=None,
-            metadata={
-                "subreddit": data.get("subreddit", ""),
-                "title": data.get("title", ""),
-                "score": data.get("score", 0),
-                "num_comments": data.get("num_comments", 0),
-                "type": "post",
-            },
-        )
+        return reviews
