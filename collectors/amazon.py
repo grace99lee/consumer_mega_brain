@@ -61,65 +61,81 @@ class AmazonCollector(BaseCollector):
         return reviews[:max_results]
 
     async def _fetch_product_reviews(self, page, asin: str, max_reviews: int) -> list[Review]:
-        """Scrape reviews from the Amazon product page (which shows ~8 reviews without login)."""
+        """Scrape reviews from Amazon's dedicated product-reviews page (paginated)."""
         reviews: list[Review] = []
-
-        url = f"https://www.amazon.com/dp/{asin}"
-        await page.goto(url, wait_until="domcontentloaded")
-        await asyncio.sleep(random.uniform(2, 3))
-
-        content = await page.content()
-        if "Type the characters" in content or "captcha" in content.lower():
-            logger.warning("Amazon bot detection on product page %s", asin)
-            return []
-
         product_name = ""
-        try:
-            el = await page.query_selector("#productTitle")
-            if el:
-                product_name = (await el.inner_text()).strip()
-        except Exception:
-            pass
 
-        review_els = await page.query_selector_all('[data-hook="review"]')
-
-        for el in review_els:
+        for page_num in range(1, 6):
             if len(reviews) >= max_reviews:
                 break
-            try:
-                body_el = await el.query_selector('[data-hook="review-body"] span')
-                body = (await body_el.inner_text()).strip() if body_el else ""
-                if len(body) < 20:
+
+            url = (
+                f"https://www.amazon.com/product-reviews/{asin}"
+                f"?reviewerType=all_reviews&sortBy=recent&pageNumber={page_num}"
+            )
+            await page.goto(url, wait_until="domcontentloaded")
+            await asyncio.sleep(random.uniform(2, 4))
+
+            content = await page.content()
+            if "Type the characters" in content or "captcha" in content.lower():
+                logger.warning("Amazon bot detection on reviews page %s", asin)
+                break
+            if "Sign in" in content and "review" not in content.lower():
+                logger.warning("Amazon redirected to sign-in for %s", asin)
+                break
+
+            # Grab product name from page header (first page only)
+            if page_num == 1 and not product_name:
+                try:
+                    el = await page.query_selector('[data-hook="product-link"]')
+                    if el:
+                        product_name = (await el.inner_text()).strip()
+                except Exception:
+                    pass
+
+            review_els = await page.query_selector_all('[data-hook="review"]')
+            if not review_els:
+                break
+
+            for el in review_els:
+                if len(reviews) >= max_reviews:
+                    break
+                try:
+                    body_el = await el.query_selector('[data-hook="review-body"] span')
+                    body = (await body_el.inner_text()).strip() if body_el else ""
+                    if len(body) < 20:
+                        continue
+
+                    title_el = await el.query_selector('[data-hook="review-title"] span:not(.a-icon-alt)')
+                    title = (await title_el.inner_text()).strip() if title_el else ""
+                    full_text = f"{title}\n\n{body}" if title else body
+
+                    author_el = await el.query_selector("span.a-profile-name")
+                    author = (await author_el.inner_text()).strip() if author_el else None
+
+                    rating = None
+                    rating_el = await el.query_selector('[data-hook="review-star-rating"] .a-icon-alt')
+                    if rating_el:
+                        try:
+                            rating = float((await rating_el.inner_text()).split(" ")[0])
+                        except (ValueError, IndexError):
+                            pass
+
+                    review_id = await el.get_attribute("id") or f"amazon_{asin}_{len(reviews)}"
+                    reviews.append(Review(
+                        id=f"amazon_{review_id}",
+                        source=SourceType.AMAZON,
+                        author=author,
+                        text=full_text,
+                        rating=rating,
+                        date=None,
+                        url=f"https://www.amazon.com/product-reviews/{asin}",
+                        product_name=product_name or None,
+                        metadata={"asin": asin, "type": "review"},
+                    ))
+                except Exception:
                     continue
 
-                title_el = await el.query_selector('[data-hook="review-title"] span:not(.a-icon-alt)')
-                title = (await title_el.inner_text()).strip() if title_el else ""
-                full_text = f"{title}\n\n{body}" if title else body
-
-                author_el = await el.query_selector("span.a-profile-name")
-                author = (await author_el.inner_text()).strip() if author_el else None
-
-                rating = None
-                rating_el = await el.query_selector('[data-hook="review-star-rating"] .a-icon-alt')
-                if rating_el:
-                    try:
-                        rating = float((await rating_el.inner_text()).split(" ")[0])
-                    except (ValueError, IndexError):
-                        pass
-
-                review_id = await el.get_attribute("id") or f"amazon_{asin}_{len(reviews)}"
-                reviews.append(Review(
-                    id=f"amazon_{review_id}",
-                    source=SourceType.AMAZON,
-                    author=author,
-                    text=full_text,
-                    rating=rating,
-                    date=None,
-                    url=f"https://www.amazon.com/dp/{asin}",
-                    product_name=product_name or None,
-                    metadata={"asin": asin, "type": "review"},
-                ))
-            except Exception:
-                continue
+            await asyncio.sleep(random.uniform(1, 2))
 
         return reviews
