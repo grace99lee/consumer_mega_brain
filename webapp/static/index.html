@@ -1,0 +1,1756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pulse — Consumer Insights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400;1,500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    /* Backgrounds */
+    --cream: #F8FAFC;
+    --cream-dark: #F1F5F9;
+    --cream-deeper: #E2E8F0;
+    --parchment: #F1F5F9;
+    /* Primary accent — clean blue */
+    --terra: #2563EB;
+    --terra-light: #3B82F6;
+    --terra-pale: #EFF6FF;
+    /* Secondary accent — violet (export pills) */
+    --gold: #7C3AED;
+    --gold-pale: #F5F3FF;
+    /* Text scale */
+    --ink: #0F172A;
+    --ink-mid: #1E293B;
+    --ink-soft: #475569;
+    --ink-faint: #64748B;
+    --ink-ghost: #94A3B8;
+    /* Sentiment */
+    --positive: #059669;
+    --positive-pale: #ECFDF5;
+    --negative: #DC2626;
+    --negative-pale: #FEF2F2;
+    --neutral: #6B7280;
+    --neutral-pale: #F9FAFB;
+    --mixed: #D97706;
+    --mixed-pale: #FFFBEB;
+    /* Structure */
+    --border: rgba(15,23,42,0.08);
+    --border-mid: rgba(15,23,42,0.14);
+    --shadow-sm: 0 1px 3px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+    --shadow: 0 4px 16px rgba(15,23,42,0.08);
+    --shadow-lg: 0 8px 32px rgba(15,23,42,0.12);
+    --r: 10px;
+    --r-sm: 6px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: var(--cream);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+
+  }
+
+  /* ─── Header ─── */
+  header {
+    background: var(--cream);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+
+  .logo {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .logo-word {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    line-height: 1;
+  }
+  .logo-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--terra);
+    margin-bottom: 3px;
+    flex-shrink: 0;
+    align-self: flex-end;
+  }
+  .logo-sub {
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding-left: 14px;
+    border-left: 1px solid var(--border-mid);
+    margin-left: 4px;
+  }
+
+  /* ─── Layout ─── */
+  .layout {
+    display: grid;
+    grid-template-columns: 300px 1fr 260px;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 56px);
+  }
+
+  .panel { overflow-y: auto; height: 100%; }
+
+  .panel-left {
+    background: var(--parchment);
+    border-right: 1px solid var(--border);
+    padding: 28px 24px;
+  }
+  .panel-center {
+    background: var(--cream);
+    padding: 32px 36px;
+    overflow-y: auto;
+  }
+  .panel-right {
+    background: var(--parchment);
+    border-left: 1px solid var(--border);
+    padding: 24px 18px;
+    overflow-y: auto;
+  }
+
+  /* ─── Form ─── */
+  .form-section { margin-bottom: 24px; }
+
+  .form-label {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+
+  .input-field {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid var(--border-mid);
+    color: var(--ink);
+    padding: 8px 0;
+    font-size: 14px;
+    font-family: 'DM Sans', inherit;
+    font-weight: 400;
+    transition: border-color 0.2s;
+    outline: none;
+    border-radius: 0;
+  }
+  .input-field:focus { border-bottom-color: var(--terra); }
+  .input-field::placeholder { color: var(--ink-ghost); }
+
+  /* Toggle */
+  .toggle-group {
+    display: flex;
+    background: var(--cream-dark);
+    border: 1px solid var(--border);
+    border-radius: 30px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .toggle-btn {
+    flex: 1;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-family: 'DM Sans', inherit;
+    font-weight: 500;
+    background: transparent;
+    border: none;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 26px;
+    transition: all 0.25s;
+    letter-spacing: 0.01em;
+  }
+  .toggle-btn.active {
+    background: var(--terra);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37,99,235,0.3);
+  }
+
+  /* Source pills */
+  .source-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .source-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+  }
+  .source-pill input[type="checkbox"] {
+    display: none;
+  }
+  .pill-label {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border-mid);
+    background: var(--cream);
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .source-pill input:checked + .pill-label {
+    background: var(--ink);
+    color: var(--cream);
+    border-color: var(--ink);
+  }
+
+  /* Select */
+  select.input-field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239B8E84' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0 center;
+    padding-right: 20px;
+    cursor: pointer;
+  }
+
+  /* Slider */
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  .slider-row input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 2px;
+    background: var(--border-mid);
+    border-radius: 2px;
+    outline: none;
+  }
+  .slider-row input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--terra);
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(37,99,235,0.4);
+  }
+  .slider-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--terra);
+    min-width: 34px;
+    text-align: right;
+    font-family: 'DM Sans', inherit;
+  }
+
+  /* Export pills */
+  .export-pill-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .export-pill {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  .export-pill input[type="checkbox"] { display: none; }
+  .export-pill-label {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border-mid);
+    background: var(--cream);
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .export-pill input:checked + .export-pill-label {
+    background: var(--terra);
+    color: #fff;
+    border-color: var(--terra);
+  }
+
+  /* Divider */
+  .form-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 4px 0 24px;
+  }
+
+  /* Run button */
+  .btn-run {
+    width: 100%;
+    padding: 14px 20px;
+    background: var(--terra);
+    color: #fff;
+    border: none;
+    border-radius: var(--r);
+    font-size: 14px;
+    font-weight: 500;
+    font-family: 'DM Sans', inherit;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    transition: all 0.25s;
+    margin-top: 4px;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-run::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .btn-run:hover {
+    background: var(--terra-light);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(37,99,235,0.3);
+  }
+  .btn-run:active { transform: none; box-shadow: none; }
+  .btn-run:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+  /* ─── Progress ─── */
+  #progress-container { display: none; margin-bottom: 28px; }
+
+  .progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .progress-header h3 {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .status-badge {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 10px;
+    border-radius: 20px;
+  }
+  .status-pending  { background: var(--neutral-pale); color: var(--neutral); }
+  .status-collecting { background: var(--mixed-pale); color: var(--mixed); }
+  .status-analyzing { background: var(--terra-pale); color: var(--terra); }
+  .status-exporting { background: var(--gold-pale); color: var(--gold); }
+  .status-done     { background: var(--positive-pale); color: var(--positive); }
+  .status-error    { background: var(--negative-pale); color: var(--negative); }
+
+  .progress-log {
+    background: var(--ink);
+    border-radius: var(--r);
+    padding: 16px 18px;
+    font-size: 12px;
+    font-family: 'DM Mono', 'Courier New', monospace;
+    line-height: 1.8;
+    max-height: 220px;
+    overflow-y: auto;
+    color: rgba(226,232,240,0.85);
+    box-shadow: var(--shadow);
+  }
+  .log-line { display: flex; gap: 10px; }
+  .log-time { color: rgba(226,232,240,0.35); flex-shrink: 0; }
+  .log-msg { word-break: break-word; }
+  .log-ok   { color: #7EC8A0; }
+  .log-warn { color: #E8C97A; }
+  .log-err  { color: #E89090; }
+
+  /* ─── Results ─── */
+  #results-container { display: none; }
+
+  .results-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .results-title h2 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .results-title .meta {
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin-top: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  .export-buttons { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+  .btn-export {
+    padding: 7px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: 'DM Sans', inherit;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    border: 1px solid var(--border-mid);
+    background: var(--cream);
+    color: var(--ink-soft);
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn-export:hover { border-color: var(--terra); color: var(--terra); background: var(--terra-pale); }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 28px;
+    gap: 0;
+    overflow-x: auto;
+  }
+  .tab-btn {
+    padding: 10px 18px;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-family: 'DM Sans', inherit;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--ink-faint);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--ink-mid); }
+  .tab-btn.active { color: var(--terra); border-bottom-color: var(--terra); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  /* Cards */
+  .card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 22px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-title {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 10px;
+  }
+
+  /* Executive summary */
+  .executive-summary {
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.8;
+    color: var(--ink);
+    background: #fff;
+    border-left: 3px solid var(--terra);
+    border-radius: 0 var(--r) var(--r) 0;
+    padding: 20px 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Stat grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 12px;
+    margin-bottom: 0;
+  }
+  .stat-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 18px 16px;
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+  }
+  .stat-value {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1;
+    margin-bottom: 6px;
+    letter-spacing: -0.02em;
+  }
+  .stat-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  /* Sentiment */
+  .sentiment-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+  .sentiment-bar-label { width: 68px; color: var(--ink-soft); font-size: 12px; }
+  .sentiment-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--cream-dark);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .sentiment-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .sentiment-bar-count { width: 36px; text-align: right; font-weight: 500; color: var(--ink-mid); font-size: 12px; }
+
+  /* Theme cards */
+  .theme-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 22px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s;
+  }
+  .theme-card:hover { box-shadow: var(--shadow); }
+  .theme-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    gap: 12px;
+  }
+  .theme-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .theme-count {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    background: var(--terra-pale);
+    color: var(--terra);
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .theme-desc { font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.65; }
+  .theme-sources { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .source-tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+
+  /* Quotes */
+  .quote-block {
+    border-left: 2px solid var(--terra-pale);
+    padding: 10px 16px;
+    margin-bottom: 10px;
+    border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    background: var(--cream);
+    transition: border-color 0.2s;
+  }
+  .quote-block:hover { border-left-color: var(--terra); }
+  .quote-text {
+    font-size: 14px;
+    font-weight: 400;
+    font-style: italic;
+    line-height: 1.65;
+    color: var(--ink-mid);
+    margin-bottom: 7px;
+  }
+  .quote-meta {
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .quote-sentiment { font-weight: 600; }
+  .q-positive { color: var(--positive); }
+  .q-negative { color: var(--negative); }
+  .q-neutral  { color: var(--neutral); }
+  .q-mixed    { color: var(--mixed); }
+
+  /* Unmet needs */
+  .need-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 20px 22px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow-sm);
+  }
+  .need-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    gap: 12px;
+  }
+  .need-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .opportunity-score {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+  }
+  .opp-high { background: var(--positive-pale); color: var(--positive); }
+  .opp-med  { background: var(--mixed-pale); color: var(--mixed); }
+  .opp-low  { background: var(--neutral-pale); color: var(--neutral); }
+  .need-freq { font-size: 12px; color: var(--ink-faint); margin-bottom: 10px; }
+  .opp-bar-track {
+    height: 3px;
+    background: var(--cream-dark);
+    border-radius: 2px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .opp-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--terra), var(--positive));
+    transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  /* Personas */
+  .persona-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 24px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .persona-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .persona-avatar {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--terra-pale);
+    border: 2px solid var(--terra-pale);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+  .persona-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--ink);
+    line-height: 1.3;
+  }
+  .persona-prevalence {
+    font-size: 11px;
+    color: var(--terra);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    margin-top: 3px;
+  }
+  .persona-desc { font-size: 13px; line-height: 1.7; color: var(--ink-soft); margin-bottom: 14px; }
+  .persona-demo { font-size: 12px; color: var(--ink-faint); margin-bottom: 14px; }
+  .persona-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 14px;
+  }
+  .persona-col h4 {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .persona-col.motivations h4 { color: var(--positive); }
+  .persona-col.pains h4 { color: var(--negative); }
+  .persona-col ul {
+    list-style: none;
+    font-size: 13px;
+    line-height: 1.75;
+    color: var(--ink-soft);
+  }
+  .persona-col ul li { padding-left: 12px; position: relative; }
+  .persona-col ul li::before {
+    content: "—";
+    position: absolute;
+    left: 0;
+    color: var(--ink-ghost);
+    font-size: 10px;
+    top: 2px;
+  }
+
+  /* ─── Summary page components ─── */
+
+  .summary-section { margin-bottom: 28px; }
+  .summary-section-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-section-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .summary-section-link {
+    font-size: 11px;
+    color: var(--terra);
+    text-decoration: none;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+  }
+  .summary-section-link:hover { text-decoration: underline; }
+
+  /* Two-col grid for summary panels */
+  .summary-two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  @media (max-width: 860px) { .summary-two-col { grid-template-columns: 1fr; } }
+
+  /* Compact sentiment display */
+  .sentiment-display {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .sentiment-verdict {
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+    text-transform: capitalize;
+    letter-spacing: -0.02em;
+  }
+  .sentiment-score-pill {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 20px;
+    letter-spacing: 0.02em;
+  }
+
+  /* Source distribution bars */
+  .source-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 9px;
+    font-size: 12px;
+  }
+  .source-bar-name {
+    width: 76px;
+    color: var(--ink-soft);
+    font-size: 11px;
+    text-transform: capitalize;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .source-bar-track {
+    flex: 1;
+    height: 5px;
+    background: var(--cream-dark);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .source-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--terra-light);
+    opacity: 0.7;
+    transition: width 1s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .source-bar-count { width: 30px; text-align: right; color: var(--ink-mid); font-weight: 500; font-size: 11px; }
+
+  /* Compact theme rows for summary */
+  .summary-theme-item {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 16px 18px;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: box-shadow 0.2s, border-color 0.2s;
+  }
+  .summary-theme-item:hover { box-shadow: var(--shadow); border-color: var(--terra-pale); }
+  .summary-theme-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .summary-theme-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .summary-theme-desc { font-size: 12px; color: var(--ink-soft); line-height: 1.55; }
+  .summary-theme-quote {
+    font-size: 13px;
+    font-style: italic;
+    color: var(--ink-soft);
+    margin-top: 10px;
+    padding-left: 12px;
+    border-left: 2px solid var(--terra-pale);
+    line-height: 1.55;
+  }
+
+  /* Compact unmet need rows */
+  .summary-need-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .summary-need-item:last-child { border-bottom: none; }
+  .summary-need-score {
+    font-size: 24px;
+    font-weight: 600;
+    line-height: 1;
+    min-width: 44px;
+    text-align: center;
+    padding-top: 2px;
+    letter-spacing: -0.02em;
+  }
+  .summary-need-body { flex: 1; }
+  .summary-need-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: 3px;
+  }
+  .summary-need-freq { font-size: 11px; color: var(--ink-faint); }
+
+  /* Persona quick row */
+  .persona-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
+  .persona-quick-item {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .persona-quick-item:hover { border-color: var(--terra-pale); }
+  .persona-quick-avatar {
+    font-size: 20px;
+    width: 36px;
+    height: 36px;
+    background: var(--terra-pale);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .persona-quick-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 3px;
+    line-height: 1.3;
+  }
+  .persona-quick-prev { font-size: 10px; color: var(--terra); font-weight: 500; letter-spacing: 0.04em; }
+
+  /* Key voice quotes (compact) */
+  .key-voice {
+    padding: 14px 18px 14px 16px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-mid);
+    border-radius: 0 var(--r) var(--r) 0;
+    margin-bottom: 10px;
+    box-shadow: var(--shadow-sm);
+    transition: border-left-color 0.2s;
+  }
+  .key-voice:hover { border-left-color: var(--terra); }
+  .key-voice-text {
+    font-size: 14px;
+    font-style: italic;
+    line-height: 1.6;
+    color: var(--ink-mid);
+    margin-bottom: 8px;
+  }
+  .key-voice-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--ink-faint);
+  }
+
+  /* Sidebar */
+  .sidebar-title {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .job-item {
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    margin-bottom: 4px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .job-item:hover { background: var(--cream-dark); border-color: var(--border); }
+  .job-item.active { background: var(--terra-pale); border-color: rgba(37,99,235,0.25); }
+  .job-item-query {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .job-item-meta {
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--ink-faint);
+  }
+  .empty-state .icon {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 48px;
+    font-weight: 300;
+    color: var(--ink-ghost);
+    margin-bottom: 20px;
+    line-height: 1;
+    display: block;
+  }
+  .empty-state h3 {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--ink-mid);
+    margin-bottom: 10px;
+  }
+  .empty-state p { font-size: 13px; line-height: 1.7; color: var(--ink-faint); max-width: 380px; margin: 0 auto; }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 13px; height: 13px;
+    border: 2px solid var(--cream-dark);
+    border-top-color: var(--terra);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Info icon + tooltip */
+  .info-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--ink-ghost);
+    color: var(--ink-ghost);
+    font-size: 9px;
+    font-weight: 600;
+    font-style: normal;
+    cursor: default;
+    flex-shrink: 0;
+    position: relative;
+    transition: border-color 0.15s, color 0.15s;
+    line-height: 1;
+  }
+  .info-icon:hover {
+    border-color: var(--terra);
+    color: var(--terra);
+  }
+  .info-icon .tooltip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    top: calc(100% + 8px);
+    transform: translateX(-50%);
+    width: 220px;
+    background: var(--ink);
+    color: rgba(226,232,240,0.9);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.6;
+    letter-spacing: 0;
+    text-transform: none;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
+    box-shadow: var(--shadow-lg);
+    z-index: 200;
+    pointer-events: none;
+  }
+  .info-icon .tooltip::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 0 5px 5px;
+    border-style: solid;
+    border-color: transparent transparent var(--ink);
+  }
+  .info-icon .tooltip strong {
+    display: block;
+    color: #fff;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .info-icon .tooltip .tooltip-row {
+    padding: 5px 0;
+    border-top: 1px solid rgba(226,232,240,0.1);
+    margin-top: 5px;
+  }
+  .info-icon .tooltip .tooltip-row:first-of-type {
+    border-top: none;
+    margin-top: 0;
+    padding-top: 0;
+  }
+  .info-icon:hover .tooltip { display: block; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
+
+  /* Source colors */
+  .src-reddit      { background: rgba(255,86,0,0.08);  color: #C0522A; border-color: rgba(255,86,0,0.2); }
+  .src-amazon      { background: rgba(200,130,0,0.10); color: #9B6B00; border-color: rgba(200,130,0,0.25); }
+  .src-youtube     { background: rgba(200,0,0,0.08);   color: #A32020; border-color: rgba(200,0,0,0.2); }
+  .src-trustpilot  { background: rgba(0,160,110,0.08); color: #007A55; border-color: rgba(0,160,110,0.2); }
+  .src-google_maps { background: rgba(50,100,220,0.08);color: #2B5BAA; border-color: rgba(50,100,220,0.2); }
+  .src-quora       { background: rgba(160,30,30,0.08); color: #8B2020; border-color: rgba(160,30,30,0.2); }
+
+  @media (max-width: 1024px) {
+    .layout { grid-template-columns: 280px 1fr; }
+    .panel-right { display: none; }
+  }
+  @media (max-width: 768px) {
+    .layout { grid-template-columns: 1fr; }
+    .panel-left { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <span class="logo-word">Pulse</span>
+    <span class="logo-dot"></span>
+    <span class="logo-sub">Consumer Insights</span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- Left panel -->
+  <div class="panel panel-left">
+
+    <div class="form-section">
+      <label class="form-label">What are you researching?</label>
+      <input id="query-input" class="input-field" type="text"
+        placeholder="e.g. melatonin supplements, Moonbrew"
+        autocomplete="off">
+    </div>
+
+    <div class="form-section">
+      <label class="form-label">
+        <span class="info-wrap">
+          Query type
+          <span class="info-icon">i
+            <span class="tooltip">
+              <div class="tooltip-row"><strong>Product category</strong>Broad discovery across all brands — surfaces trending topics, shared pain points, and unmet needs across an entire market segment.</div>
+              <div class="tooltip-row"><strong>Specific brand</strong>Focused brand intelligence — compares sentiment over time, identifies loyalty drivers, and benchmarks against competitor mentions in the same conversations.</div>
+            </span>
+          </span>
+        </span>
+      </label>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-type="product" onclick="setQueryType('product', this)">Product category</button>
+        <button class="toggle-btn" data-type="brand" onclick="setQueryType('brand', this)">Specific brand</button>
+      </div>
+    </div>
+
+    <hr class="form-divider">
+
+    <div class="form-section">
+      <label class="form-label">Data sources</label>
+      <div class="source-grid">
+        <label class="source-pill"><input type="checkbox" name="source" value="reddit" checked><span class="pill-label">Reddit</span></label>
+        <label class="source-pill"><input type="checkbox" name="source" value="amazon" checked><span class="pill-label">Amazon</span></label>
+        <label class="source-pill"><input type="checkbox" name="source" value="youtube" checked><span class="pill-label">YouTube</span></label>
+        <label class="source-pill"><input type="checkbox" name="source" value="trustpilot" checked><span class="pill-label">Trustpilot</span></label>
+        <label class="source-pill"><input type="checkbox" name="source" value="google_maps" checked><span class="pill-label">Google Maps</span></label>
+        <label class="source-pill"><input type="checkbox" name="source" value="quora" checked><span class="pill-label">Quora</span></label>
+      </div>
+    </div>
+
+    <hr class="form-divider">
+
+    <div class="form-section">
+      <label class="form-label">AI model</label>
+      <select id="ai-provider" class="input-field">
+        <option value="claude">Claude (Anthropic)</option>
+        <option value="openai">GPT-4 (OpenAI)</option>
+      </select>
+    </div>
+
+    <div class="form-section">
+      <label class="form-label">Reviews per source — <span id="reviews-val">200</span></label>
+      <div class="slider-row">
+        <input type="range" id="max-reviews" min="25" max="500" step="25" value="200"
+          oninput="document.getElementById('reviews-val').textContent = this.value">
+      </div>
+    </div>
+
+    <hr class="form-divider">
+
+    <div class="form-section">
+      <label class="form-label">Export formats</label>
+      <div class="export-pill-grid">
+        <label class="export-pill"><input type="checkbox" name="export" value="markdown" checked><span class="export-pill-label">Markdown</span></label>
+        <label class="export-pill"><input type="checkbox" name="export" value="excel" checked><span class="export-pill-label">Excel</span></label>
+        <label class="export-pill"><input type="checkbox" name="export" value="powerpoint"><span class="export-pill-label">PowerPoint</span></label>
+        <label class="export-pill"><input type="checkbox" name="export" value="csv"><span class="export-pill-label">CSV</span></label>
+      </div>
+    </div>
+
+    <button class="btn-run" id="run-btn" onclick="runAnalysis()">
+      Run Analysis →
+    </button>
+
+  </div>
+
+  <!-- Center panel -->
+  <div class="panel panel-center">
+
+    <!-- Progress -->
+    <div id="progress-container">
+      <div class="progress-header">
+        <h3>
+          <span class="spinner" id="progress-spinner" style="display:none"></span>
+          Gathering insights…
+        </h3>
+        <span class="status-badge status-pending" id="status-badge">pending</span>
+      </div>
+      <div class="progress-log" id="progress-log"></div>
+    </div>
+
+    <!-- Results -->
+    <div id="results-container">
+      <div class="results-header">
+        <div class="results-title">
+          <h2 id="results-title">Results</h2>
+          <div class="meta" id="results-meta"></div>
+        </div>
+        <div class="export-buttons" id="export-buttons"></div>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn active" onclick="showTab('summary', this)">Summary</button>
+        <button class="tab-btn" onclick="showTab('sentiment', this)">Sentiment</button>
+        <button class="tab-btn" onclick="showTab('themes', this)">Themes</button>
+        <button class="tab-btn" onclick="showTab('needs', this)">Unmet Needs</button>
+        <button class="tab-btn" onclick="showTab('personas', this)">Personas</button>
+        <button class="tab-btn" onclick="showTab('quotes', this)">Key Quotes</button>
+      </div>
+
+      <div id="tab-summary" class="tab-content active"></div>
+      <div id="tab-sentiment" class="tab-content"></div>
+      <div id="tab-themes" class="tab-content"></div>
+      <div id="tab-needs" class="tab-content"></div>
+      <div id="tab-personas" class="tab-content"></div>
+      <div id="tab-quotes" class="tab-content"></div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state" class="empty-state">
+      <span class="icon">∿</span>
+      <h3>What do consumers really think?</h3>
+      <p>Enter a product category or brand, choose your sources, and let AI surface the patterns, sentiments, and unmet needs that matter.</p>
+    </div>
+
+  </div>
+
+  <!-- Right panel -->
+  <div class="panel panel-right">
+    <div class="sidebar-title">Past analyses</div>
+    <div id="jobs-list">
+      <div style="font-size:12px;color:var(--ink-ghost);text-align:center;padding:24px 0;font-style:italic">Nothing yet</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let currentQueryType = 'product';
+let currentJobId = null;
+let activeEventSource = null;
+
+function setQueryType(type, btn) {
+  currentQueryType = type;
+  document.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+function getChecked(name) {
+  return [...document.querySelectorAll(`input[name="${name}"]:checked`)].map(el => el.value);
+}
+
+function formatRelative(iso) {
+  if (!iso) return '';
+  const diff = Date.now() - new Date(iso);
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return `${Math.round(diff/60000)}m ago`;
+  return `${Math.round(diff/3600000)}h ago`;
+}
+
+function sentimentColor(s) {
+  return { positive:'q-positive', negative:'q-negative', neutral:'q-neutral', mixed:'q-mixed' }[s] || 'q-neutral';
+}
+function sourceClass(s) { return 'src-' + s; }
+
+function personaEmoji(name) {
+  const e = ['🌿','☀️','🌙','🍃','✦','◎','▲','◇'];
+  return e[name.charCodeAt(0) % e.length];
+}
+function oppClass(score) {
+  if (score >= 0.7) return 'opp-high';
+  if (score >= 0.4) return 'opp-med';
+  return 'opp-low';
+}
+
+async function runAnalysis() {
+  const query = document.getElementById('query-input').value.trim();
+  if (!query) { document.getElementById('query-input').focus(); return; }
+
+  const sources = getChecked('source');
+  const exports = getChecked('export');
+  const aiProvider = document.getElementById('ai-provider').value;
+  const maxReviews = parseInt(document.getElementById('max-reviews').value);
+
+  if (!sources.length) { alert('Select at least one data source.'); return; }
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('results-container').style.display = 'none';
+  document.getElementById('progress-container').style.display = 'block';
+  document.getElementById('progress-log').innerHTML = '';
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('progress-spinner').style.display = 'inline-block';
+  setStatus('pending');
+
+  if (activeEventSource) { activeEventSource.close(); activeEventSource = null; }
+
+  try {
+    const resp = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ query, query_type: currentQueryType, ai_provider: aiProvider, sources, export_formats: exports.length ? exports : ['markdown'], max_reviews: maxReviews })
+    });
+    if (!resp.ok) { const e = await resp.json(); throw new Error(e.detail || 'Request failed'); }
+    const data = await resp.json();
+    currentJobId = data.job_id;
+    connectSSE(currentJobId);
+    loadJobs();
+  } catch(e) {
+    appendLog('Error: ' + e.message, 'err');
+    document.getElementById('run-btn').disabled = false;
+    document.getElementById('progress-spinner').style.display = 'none';
+  }
+}
+
+function connectSSE(jobId) {
+  const es = new EventSource(`/api/jobs/${jobId}/stream`);
+  activeEventSource = es;
+  es.onmessage = function(e) {
+    const ev = JSON.parse(e.data);
+    if (ev.type === 'ping') return;
+    if (ev.message) {
+      let cls = '';
+      if (ev.message.includes('✓') || ev.message.includes('complete')) cls = 'ok';
+      else if (ev.message.includes('⚠') || ev.message.includes('warn')) cls = 'warn';
+      else if (ev.message.includes('✗') || ev.message.includes('Error') || ev.message.includes('failed')) cls = 'err';
+      appendLog(ev.message, cls);
+    }
+    if (ev.status) setStatus(ev.status);
+    if (ev.type === 'done') {
+      es.close(); activeEventSource = null;
+      document.getElementById('progress-spinner').style.display = 'none';
+      document.getElementById('run-btn').disabled = false;
+      loadJobResult(jobId); loadJobs();
+    }
+    if (ev.type === 'error') {
+      es.close(); activeEventSource = null;
+      document.getElementById('progress-spinner').style.display = 'none';
+      document.getElementById('run-btn').disabled = false;
+      loadJobs();
+    }
+  };
+  es.onerror = function() {
+    es.close(); activeEventSource = null;
+    document.getElementById('progress-spinner').style.display = 'none';
+    document.getElementById('run-btn').disabled = false;
+  };
+}
+
+function appendLog(msg, cls) {
+  const log = document.getElementById('progress-log');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  const now = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  line.innerHTML = `<span class="log-time">${now}</span><span class="log-msg log-${cls||''}">${escHtml(msg)}</span>`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function setStatus(status) {
+  const b = document.getElementById('status-badge');
+  b.className = 'status-badge status-' + status;
+  b.textContent = status;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function loadJobResult(jobId) {
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`);
+    const job = await resp.json();
+    if (job.result) renderResults(job);
+  } catch(e) { console.error(e); }
+}
+
+function renderResults(job) {
+  const r = job.result;
+  document.getElementById('results-container').style.display = 'block';
+  document.getElementById('progress-container').style.display = 'none';
+  document.getElementById('results-title').textContent = r.query;
+  document.getElementById('results-meta').textContent =
+    `${r.total_reviews} reviews · ${r.sources_used.join(', ')} · ${r.query_type} · ${new Date(r.generated_at).toLocaleString()}`;
+
+  // Export buttons
+  const exportsEl = document.getElementById('export-buttons');
+  exportsEl.innerHTML = '';
+  [{key:'markdown',label:'↓ Markdown',ext:'md'},{key:'excel',label:'↓ Excel',ext:'xlsx'},{key:'powerpoint',label:'↓ PowerPoint',ext:'pptx'},{key:'csv',label:'↓ CSV',ext:'zip'}].forEach(fmt => {
+    const a = document.createElement('a');
+    a.className = 'btn-export';
+    a.href = `/api/jobs/${job.job_id}/export/${fmt.key}`;
+    a.download = `${r.query}_${fmt.key}.${fmt.ext}`;
+    a.textContent = fmt.label;
+    exportsEl.appendChild(a);
+  });
+
+  // Summary tab
+  const sentColors = {positive:'var(--positive)',negative:'var(--negative)',neutral:'var(--neutral)',mixed:'var(--mixed)'};
+  const sentColor = sentColors[r.sentiment?.overall] || 'var(--terra)';
+  const s = r.sentiment;
+  const dist = s.distribution || {};
+  const distTotal = Object.values(dist).reduce((a,b)=>a+b,0)||1;
+
+  // Sentiment bars (compact for summary)
+  const sentBars = Object.entries(dist).map(([label, count]) => {
+    const pct = Math.round(count/distTotal*100);
+    const c = sentColors[label]||'var(--terra)';
+    return `<div class="sentiment-bar-row">
+      <div class="sentiment-bar-label">${label}</div>
+      <div class="sentiment-bar-track"><div class="sentiment-bar-fill" style="width:${pct}%;background:${c}"></div></div>
+      <div class="sentiment-bar-count">${count}</div>
+    </div>`;
+  }).join('');
+
+  // Source distribution
+  const sourceCount = {};
+  r.sources_used.forEach(src => { sourceCount[src] = 0; });
+  // Use key_quotes + theme source_breakdown to estimate per-source counts
+  (r.key_quotes||[]).forEach(q => { if(q.source) sourceCount[q.source] = (sourceCount[q.source]||0)+1; });
+  r.themes.forEach(t => Object.entries(t.source_breakdown||{}).forEach(([src,n]) => { sourceCount[src] = (sourceCount[src]||0)+n; }));
+  const maxSrc = Math.max(...Object.values(sourceCount), 1);
+  const sourceBars = Object.entries(sourceCount).sort((a,b)=>b[1]-a[1]).map(([src,n]) => `
+    <div class="source-bar-row">
+      <div class="source-bar-name">${src.replace('_',' ')}</div>
+      <div class="source-bar-track"><div class="source-bar-fill" style="width:${Math.round(n/maxSrc*100)}%"></div></div>
+      <div class="source-bar-count">${n||'—'}</div>
+    </div>`).join('');
+
+  // Top 3 themes
+  const topThemes = r.themes.slice(0,3).map(t => {
+    const q = (t.representative_quotes||[])[0];
+    const quoteHtml = q ? `<div class="summary-theme-quote">"${escHtml(q.quote.slice(0,140))}${q.quote.length>140?'…':''}"</div>` : '';
+    const srcTags = Object.entries(t.source_breakdown||{}).slice(0,3).map(([src])=>`<span class="source-tag ${sourceClass(src)}">${src}</span>`).join('');
+    return `<div class="summary-theme-item" onclick="showTab('themes', document.querySelectorAll('.tab-btn')[2])">
+      <div class="summary-theme-row">
+        <div class="summary-theme-name">${escHtml(t.name)}</div>
+        <div class="theme-count">${t.review_count} mentions</div>
+      </div>
+      <div class="summary-theme-desc">${escHtml(t.description)}</div>
+      ${srcTags ? `<div class="theme-sources" style="margin-top:8px">${srcTags}</div>` : ''}
+      ${quoteHtml}
+    </div>`;
+  }).join('');
+
+  // Top 3 unmet needs
+  const topNeeds = r.unmet_needs.slice(0,3).map(n => {
+    const pct = Math.round(n.opportunity_score * 100);
+    const scoreColor = pct >= 70 ? 'var(--positive)' : pct >= 40 ? 'var(--mixed)' : 'var(--neutral)';
+    return `<div class="summary-need-item">
+      <div class="summary-need-score" style="color:${scoreColor}">${pct}<span style="font-size:14px">%</span></div>
+      <div class="summary-need-body">
+        <div class="summary-need-name">${escHtml(n.need)}</div>
+        <div class="summary-need-freq">Opportunity score · mentioned ${n.frequency}× across sources</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Persona quick view
+  const personaQuick = r.personas.map(p => `
+    <div class="persona-quick-item" onclick="showTab('personas', document.querySelectorAll('.tab-btn')[4])">
+      <div class="persona-quick-avatar">${personaEmoji(p.name)}</div>
+      <div>
+        <div class="persona-quick-name">${escHtml(p.name)}</div>
+        <div class="persona-quick-prev">${escHtml(p.estimated_prevalence)}</div>
+      </div>
+    </div>`).join('');
+
+  // Key voices — pick a mix of sentiments (up to 5 quotes)
+  const allQuotes = [...(r.key_quotes||[])].sort(() => 0.5 - Math.random());
+  const voicesBySent = {};
+  allQuotes.forEach(q => { if(!voicesBySent[q.sentiment]) voicesBySent[q.sentiment] = q; });
+  const keyVoices = Object.values(voicesBySent).slice(0,4).map(q => `
+    <div class="key-voice">
+      <div class="key-voice-text">"${escHtml(q.quote)}"</div>
+      <div class="key-voice-meta">
+        <span class="source-tag ${sourceClass(q.source)}">${q.source}</span>
+        ${q.author ? `<span>${escHtml(q.author)}</span>` : ''}
+        <span>${escHtml(q.theme)}</span>
+        <span class="quote-sentiment ${sentimentColor(q.sentiment)}">${q.sentiment}</span>
+      </div>
+    </div>`).join('');
+
+  const scoreSign = s.score >= 0 ? '+' : '';
+  document.getElementById('tab-summary').innerHTML = `
+    <div class="executive-summary">${escHtml(r.executive_summary)}</div>
+
+    <div class="stat-grid" style="margin-bottom:24px">
+      <div class="stat-card"><div class="stat-value" style="color:var(--ink)">${r.total_reviews}</div><div class="stat-label">Reviews</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:${sentColor}">${scoreSign}${s.score.toFixed(1)}</div><div class="stat-label">Sentiment Score</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--ink)">${r.themes.length}</div><div class="stat-label">Themes</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--ink)">${r.unmet_needs.length}</div><div class="stat-label">Gaps Found</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--ink)">${r.personas.length}</div><div class="stat-label">Personas</div></div>
+      <div class="stat-card"><div class="stat-value" style="color:var(--ink)">${r.sources_used.length}</div><div class="stat-label">Sources</div></div>
+    </div>
+
+    <div class="summary-two-col">
+      <div class="card">
+        <div class="card-title">Sentiment Breakdown</div>
+        <div class="sentiment-display">
+          <div class="sentiment-verdict" style="color:${sentColor}">${s.overall}</div>
+          <div class="sentiment-score-pill" style="background:${sentColor}18;color:${sentColor}">${scoreSign}${s.score.toFixed(2)}</div>
+        </div>
+        ${sentBars}
+      </div>
+      <div class="card">
+        <div class="card-title">Data Sources</div>
+        <div style="margin-top:4px">${sourceBars || '<div style="font-size:12px;color:var(--ink-faint)">No source data</div>'}</div>
+      </div>
+    </div>
+
+    ${topThemes ? `<div class="summary-section">
+      <div class="summary-section-header">
+        <div class="summary-section-title">Top Themes</div>
+        <button class="summary-section-link" onclick="showTab('themes', document.querySelectorAll('.tab-btn')[2])">See all ${r.themes.length} →</button>
+      </div>
+      ${topThemes}
+    </div>` : ''}
+
+    ${topNeeds ? `<div class="summary-section">
+      <div class="summary-section-header">
+        <div class="summary-section-title">Unmet Needs & Opportunities</div>
+        <button class="summary-section-link" onclick="showTab('needs', document.querySelectorAll('.tab-btn')[3])">See all ${r.unmet_needs.length} →</button>
+      </div>
+      <div class="card" style="padding:4px 20px 8px">${topNeeds}</div>
+    </div>` : ''}
+
+    ${personaQuick ? `<div class="summary-section">
+      <div class="summary-section-header">
+        <div class="summary-section-title">Consumer Personas</div>
+        <button class="summary-section-link" onclick="showTab('personas', document.querySelectorAll('.tab-btn')[4])">Explore →</button>
+      </div>
+      <div class="persona-quick-grid">${personaQuick}</div>
+    </div>` : ''}
+
+    ${keyVoices ? `<div class="summary-section">
+      <div class="summary-section-header">
+        <div class="summary-section-title">Key Voices</div>
+        <button class="summary-section-link" onclick="showTab('quotes', document.querySelectorAll('.tab-btn')[5])">See all quotes →</button>
+      </div>
+      ${keyVoices}
+    </div>` : ''}
+  `;
+
+  // Sentiment tab
+  const bars = Object.entries(dist).map(([label,count]) => {
+    const pct = Math.round(count/distTotal*100);
+    const color = sentColors[label]||'var(--terra)';
+    return `<div class="sentiment-bar-row">
+      <div class="sentiment-bar-label">${label}</div>
+      <div class="sentiment-bar-track"><div class="sentiment-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="sentiment-bar-count">${count}</div>
+    </div>`;
+  }).join('');
+  const bySource = s.by_source ? Object.entries(s.by_source).map(([src,score]) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px">
+      <span class="source-tag ${sourceClass(src)}">${src}</span>
+      <span style="font-weight:600;color:${score>=0?'var(--positive)':'var(--negative)'}">${score>=0?'+':''}${score.toFixed(2)}</span>
+    </div>`).join('') : '';
+  const overallColor = sentColor;
+  document.getElementById('tab-sentiment').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div class="card">
+        <div class="card-title">Overall</div>
+        <div style="font-family:'DM Sans',sans-serif;font-size:38px;font-weight:700;letter-spacing:-0.02em;color:${overallColor};line-height:1;margin:8px 0 6px;text-transform:capitalize">${s.overall}</div>
+        <div style="font-size:13px;color:var(--ink-soft)">Score <strong style="color:${overallColor}">${s.score>=0?'+':''}${s.score.toFixed(2)}</strong></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Breakdown</div>
+        <div style="margin-top:4px">${bars}</div>
+      </div>
+    </div>
+    ${bySource?`<div class="card"><div class="card-title">By source</div>${bySource}</div>`:''}`;
+
+  // Themes tab
+  document.getElementById('tab-themes').innerHTML = r.themes.map(t => {
+    const quotes = (t.representative_quotes||[]).slice(0,2).map(q=>`
+      <div class="quote-block">
+        <div class="quote-text">"${escHtml(q.quote)}"</div>
+        <div class="quote-meta"><span class="source-tag ${sourceClass(q.source)}">${q.source}</span><span>${escHtml(q.author||'Anonymous')}</span><span class="quote-sentiment ${sentimentColor(q.sentiment)}">${q.sentiment}</span></div>
+      </div>`).join('');
+    const srcs = Object.entries(t.source_breakdown||{}).slice(0,4).map(([src])=>`<span class="source-tag ${sourceClass(src)}">${src}</span>`).join('');
+    return `<div class="theme-card">
+      <div class="theme-header"><div class="theme-name">${escHtml(t.name)}</div><div class="theme-count">${t.review_count} mentions</div></div>
+      <div class="theme-desc">${escHtml(t.description)}</div>
+      ${srcs?`<div class="theme-sources">${srcs}</div>`:''}${quotes}</div>`;
+  }).join('') || `<div class="empty-state"><span class="icon">∅</span><h3>No themes found</h3></div>`;
+
+  // Unmet needs tab
+  document.getElementById('tab-needs').innerHTML = r.unmet_needs.map(n => {
+    const ev = (n.evidence||[]).slice(0,1).map(q=>`
+      <div class="quote-block">
+        <div class="quote-text">"${escHtml(q.quote)}"</div>
+        <div class="quote-meta"><span class="source-tag ${sourceClass(q.source)}">${q.source}</span><span>${escHtml(q.author||'Anonymous')}</span></div>
+      </div>`).join('');
+    return `<div class="need-card">
+      <div class="need-header"><div class="need-name">${escHtml(n.need)}</div><div class="opportunity-score ${oppClass(n.opportunity_score)}">${(n.opportunity_score*100).toFixed(0)}% opp</div></div>
+      <div class="need-freq">Mentioned ${n.frequency} times</div>
+      <div class="opp-bar-track"><div class="opp-bar-fill" style="width:${(n.opportunity_score*100).toFixed(0)}%"></div></div>
+      ${ev}</div>`;
+  }).join('') || `<div class="empty-state"><span class="icon">∅</span><h3>No unmet needs found</h3></div>`;
+
+  // Personas tab
+  document.getElementById('tab-personas').innerHTML = r.personas.map(p => {
+    const motivations = (p.motivations||[]).map(m=>`<li>${escHtml(m)}</li>`).join('');
+    const pains = (p.pain_points||[]).map(pp=>`<li>${escHtml(pp)}</li>`).join('');
+    const q = (p.representative_quotes||[]).slice(0,1).map(q=>`
+      <div class="quote-block">
+        <div class="quote-text">"${escHtml(q.quote)}"</div>
+        <div class="quote-meta"><span class="source-tag ${sourceClass(q.source)}">${q.source}</span><span>${escHtml(q.author||'Anonymous')}</span></div>
+      </div>`).join('');
+    return `<div class="persona-card">
+      <div class="persona-header">
+        <div class="persona-avatar">${personaEmoji(p.name)}</div>
+        <div><div class="persona-name">${escHtml(p.name)}</div><div class="persona-prevalence">${escHtml(p.estimated_prevalence)}</div></div>
+      </div>
+      <div class="persona-desc">${escHtml(p.description)}</div>
+      ${p.demographics_hints?`<div class="persona-demo">${escHtml(p.demographics_hints)}</div>`:''}
+      <div class="persona-cols">
+        <div class="persona-col motivations"><h4>Motivations</h4><ul>${motivations}</ul></div>
+        <div class="persona-col pains"><h4>Pain Points</h4><ul>${pains}</ul></div>
+      </div>${q}</div>`;
+  }).join('') || `<div class="empty-state"><span class="icon">∅</span><h3>No personas identified</h3></div>`;
+
+  // Key quotes tab
+  document.getElementById('tab-quotes').innerHTML = r.key_quotes.map(q=>`
+    <div class="quote-block">
+      <div class="quote-text">"${escHtml(q.quote)}"</div>
+      <div class="quote-meta">
+        <span class="source-tag ${sourceClass(q.source)}">${q.source}</span>
+        <span>${escHtml(q.author||'Anonymous')}</span>
+        <span>${escHtml(q.theme)}</span>
+        <span class="quote-sentiment ${sentimentColor(q.sentiment)}">${q.sentiment}</span>
+      </div>
+    </div>`).join('') || `<div class="empty-state"><span class="icon">∅</span><h3>No quotes available</h3></div>`;
+
+  showTab('summary', document.querySelector('.tab-btn'));
+}
+
+async function loadJobs() {
+  try {
+    const resp = await fetch('/api/jobs');
+    const jobs = await resp.json();
+    const list = document.getElementById('jobs-list');
+    if (!jobs.length) {
+      list.innerHTML = `<div style="font-size:12px;color:var(--ink-ghost);text-align:center;padding:24px 0;font-style:italic">Nothing yet</div>`;
+      return;
+    }
+    list.innerHTML = jobs.map(j=>`
+      <div class="job-item ${j.job_id===currentJobId?'active':''}" onclick="viewJob('${j.job_id}')">
+        <div class="job-item-query">${escHtml(j.query)}</div>
+        <div class="job-item-meta">
+          <span class="status-badge status-${j.status}" style="font-size:9px;padding:2px 8px">${j.status}</span>
+          <span>${formatRelative(j.created_at)}</span>
+          ${j.review_count?`<span>${j.review_count} reviews</span>`:''}
+        </div>
+      </div>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function viewJob(jobId) {
+  currentJobId = jobId;
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('results-container').style.display = 'none';
+  document.getElementById('progress-container').style.display = 'none';
+  try {
+    const resp = await fetch(`/api/jobs/${jobId}`);
+    const job = await resp.json();
+    if (job.status==='done' && job.result) {
+      renderResults(job);
+    } else if (job.status==='error') {
+      document.getElementById('progress-container').style.display = 'block';
+      document.getElementById('progress-log').innerHTML = '';
+      job.events.forEach(ev => appendLog(ev.message||'', ev.type==='error'?'err':''));
+      setStatus('error');
+    } else {
+      document.getElementById('progress-container').style.display = 'block';
+      document.getElementById('progress-log').innerHTML = '';
+      if (activeEventSource) activeEventSource.close();
+      connectSSE(jobId);
+    }
+    document.querySelectorAll('.job-item').forEach(el =>
+      el.classList.toggle('active', el.getAttribute('onclick')===`viewJob('${jobId}')`));
+  } catch(e) { console.error(e); }
+}
+
+loadJobs();
+setInterval(loadJobs, 10000);
+</script>
+
+</body>
+</html>
