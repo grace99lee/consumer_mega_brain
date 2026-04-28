@@ -1431,11 +1431,28 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+// --- localStorage persistence ---
+const LS_KEY = 'pulse_analyses';
+const LS_MAX = 20;
+
+function saveAnalysis(job) {
+  try {
+    const stored = getStoredAnalyses().filter(j => j.job_id !== job.job_id);
+    stored.unshift(job);
+    localStorage.setItem(LS_KEY, JSON.stringify(stored.slice(0, LS_MAX)));
+  } catch(e) { console.warn('localStorage save failed:', e); }
+}
+
+function getStoredAnalyses() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
 async function loadJobResult(jobId) {
   try {
     const resp = await fetch(`/api/jobs/${jobId}`);
     const job = await resp.json();
-    if (job.result) renderResults(job);
+    if (job.result) { renderResults(job); saveAnalysis(job); }
   } catch(e) { console.error(e); }
 }
 
@@ -1704,19 +1721,30 @@ function renderResults(job) {
 async function loadJobs() {
   try {
     const resp = await fetch('/api/jobs');
-    const jobs = await resp.json();
+    const serverJobs = await resp.json();
+    const serverIds = new Set(serverJobs.map(j => j.job_id));
+
+    // Merge server jobs (live) with localStorage jobs not currently on server
+    const storedJobs = getStoredAnalyses()
+      .filter(j => !serverIds.has(j.job_id))
+      .map(j => ({ ...j, _fromStorage: true }));
+
+    const allJobs = [...serverJobs, ...storedJobs]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
     const list = document.getElementById('jobs-list');
-    if (!jobs.length) {
+    if (!allJobs.length) {
       list.innerHTML = `<div style="font-size:12px;color:var(--ink-ghost);text-align:center;padding:24px 0;font-style:italic">Nothing yet</div>`;
       return;
     }
-    list.innerHTML = jobs.map(j=>`
+    list.innerHTML = allJobs.map(j=>`
       <div class="job-item ${j.job_id===currentJobId?'active':''}" onclick="viewJob('${j.job_id}')">
         <div class="job-item-query">${escHtml(j.query)}</div>
         <div class="job-item-meta">
           <span class="status-badge status-${j.status}" style="font-size:9px;padding:2px 8px">${j.status}</span>
           <span>${formatRelative(j.created_at)}</span>
           ${j.review_count?`<span>${j.review_count} reviews</span>`:''}
+          ${j._fromStorage?`<span style="font-size:9px;opacity:0.5">cached</span>`:''}
         </div>
       </div>`).join('');
   } catch(e) { console.error(e); }
@@ -1729,9 +1757,25 @@ async function viewJob(jobId) {
   document.getElementById('progress-container').style.display = 'none';
   try {
     const resp = await fetch(`/api/jobs/${jobId}`);
+
+    // Job no longer on server — load from localStorage
+    if (!resp.ok) {
+      const stored = getStoredAnalyses().find(j => j.job_id === jobId);
+      if (stored && stored.result) renderResults(stored);
+      document.querySelectorAll('.job-item').forEach(el =>
+        el.classList.toggle('active', el.getAttribute('onclick')===`viewJob('${jobId}')`));
+      return;
+    }
+
     const job = await resp.json();
-    if (job.status==='done' && job.result) {
-      renderResults(job);
+    if (job.status==='done') {
+      if (job.result) {
+        renderResults(job);
+      } else {
+        // result not in server memory — try localStorage
+        const stored = getStoredAnalyses().find(j => j.job_id === jobId);
+        if (stored && stored.result) renderResults(stored);
+      }
     } else if (job.status==='error') {
       document.getElementById('progress-container').style.display = 'block';
       document.getElementById('progress-log').innerHTML = '';
