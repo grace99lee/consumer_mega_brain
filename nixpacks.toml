@@ -1,11 +1,2 @@
-[variables]
-PLAYWRIGHT_BROWSERS_PATH = "/app/ms-playwright"
-
-[phases.install]
-cmds = [
-  "pip install -r requirements.txt",
-  "PLAYWRIGHT_BROWSERS_PATH=/app/ms-playwright playwright install chromium --with-deps"
-]
-
 [start]
 cmd = "python run_webapp.py"
