@@ -19,7 +19,7 @@ _UA_LIST = [
     "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
 ]
 
-_SCRAPERAPI_BASE = "https://api.scraperapi.com/structured/amazon"
+_SCRAPERAPI_URL = "http://api.scraperapi.com"
 
 
 class AmazonCollector(BaseCollector):
@@ -28,116 +28,110 @@ class AmazonCollector(BaseCollector):
     def is_available(self) -> bool:
         return True
 
+    def _proxy_url(self, target_url: str) -> str:
+        """Wrap a URL through ScraperAPI's basic proxy (works on all tiers)."""
+        return f"{_SCRAPERAPI_URL}?api_key={self.settings.scraperapi_key}&url={target_url}&country_code=us"
+
     async def collect(self, query: str, max_results: int = 200) -> list[Review]:
         if self.settings.has_scraperapi():
-            logger.info("Amazon: using ScraperAPI structured endpoint")
+            logger.info("Amazon: using ScraperAPI proxy")
             return await self._collect_scraperapi(query, max_results)
         else:
-            logger.info("Amazon: using direct httpx (may be blocked on cloud — add SCRAPERAPI_KEY for reliability)")
+            logger.info("Amazon: using direct httpx (add SCRAPERAPI_KEY for cloud reliability)")
             return await self._collect_httpx(query, max_results)
 
-    # --- ScraperAPI structured endpoint (reliable from any IP) ---
+    # --- ScraperAPI basic proxy (works on free tier) ---
 
     async def _collect_scraperapi(self, query: str, max_results: int) -> list[Review]:
         reviews: list[Review] = []
-        api_key = self.settings.scraperapi_key
 
         async with httpx.AsyncClient(timeout=60) as client:
             # Step 1: search for ASINs
+            search_target = f"https://www.amazon.com/s?k={query.replace(' ', '+')}"
             try:
-                resp = await client.get(
-                    f"{_SCRAPERAPI_BASE}/search",
-                    params={"api_key": api_key, "query": query, "page": "1"},
-                )
+                resp = await client.get(self._proxy_url(search_target))
                 logger.debug("ScraperAPI search status: %d", resp.status_code)
                 if resp.status_code != 200:
-                    logger.warning("ScraperAPI Amazon search returned %d: %s", resp.status_code, resp.text[:300])
+                    logger.warning("ScraperAPI Amazon search returned %d", resp.status_code)
                     return []
-                data = resp.json()
-                logger.debug("ScraperAPI search keys: %s", list(data.keys()))
-                # Try all known field names for product results
-                products = (
-                    data.get("results")
-                    or data.get("shopping_results")
-                    or data.get("organic_results")
-                    or data.get("products")
-                    or []
-                )
+                asins = re.findall(r'data-asin="([A-Z0-9]{10})"', resp.text)
+                asins = list(dict.fromkeys(a for a in asins if a))[:5]
+                logger.debug("ScraperAPI found ASINs: %s", asins)
             except Exception as exc:
                 logger.warning("ScraperAPI Amazon search failed: %s", exc)
                 return []
 
-            asins = [p["asin"] for p in products if p.get("asin")][:5]
-            logger.debug("ScraperAPI found %d Amazon ASINs", len(asins))
-
             if not asins:
-                logger.warning("Amazon: no ASINs found via ScraperAPI for '%s'. Keys returned: %s", query, list(data.keys()))
+                logger.warning("Amazon: no ASINs found via ScraperAPI for '%s'", query)
                 return []
 
             # Step 2: fetch reviews for each ASIN
             for asin in asins:
                 if len(reviews) >= max_results:
                     break
-                for page_num in range(1, 4):
+                for page_num in range(1, 5):
                     if len(reviews) >= max_results:
                         break
+                    reviews_target = (
+                        f"https://www.amazon.com/product-reviews/{asin}"
+                        f"?reviewerType=all_reviews&sortBy=recent&pageNumber={page_num}"
+                    )
                     try:
-                        resp = await client.get(
-                            f"{_SCRAPERAPI_BASE}/reviews",
-                            params={"api_key": api_key, "asin": asin, "page": str(page_num)},
-                        )
+                        resp = await client.get(self._proxy_url(reviews_target))
                         if resp.status_code != 200:
                             break
-                        rdata = resp.json()
-                        logger.debug("ScraperAPI reviews keys for %s: %s", asin, list(rdata.keys()))
-                        product_name = rdata.get("product_name", "") or rdata.get("name", "")
-                        review_list = (
-                            rdata.get("reviews")
-                            or rdata.get("customer_reviews")
-                            or rdata.get("data", {}).get("reviews", [])
-                            or []
-                        )
-
-                        if not review_list:
+                        batch = self._parse_reviews_html(resp.text, asin)
+                        if not batch:
                             break
-
-                        for r in review_list:
-                            if len(reviews) >= max_results:
-                                break
-                            body = (r.get("review_content") or r.get("body") or "").strip()
-                            title = (r.get("review_title") or r.get("title") or "").strip()
-                            if not body and not title:
-                                continue
-                            full_text = f"{title}\n\n{body}" if title and body else (body or title)
-                            if len(full_text) < 20:
-                                continue
-
-                            rating = None
-                            try:
-                                raw = r.get("rating") or r.get("review_star_rating") or ""
-                                rating = float(str(raw).split(" ")[0].split("/")[0])
-                            except (ValueError, TypeError):
-                                pass
-
-                            reviews.append(Review(
-                                id=f"amazon_{asin}_{r.get('review_id', len(reviews))}",
-                                source=SourceType.AMAZON,
-                                author=r.get("reviewer_name") or r.get("author"),
-                                text=full_text,
-                                rating=rating,
-                                date=None,
-                                url=f"https://www.amazon.com/product-reviews/{asin}",
-                                product_name=product_name or None,
-                                metadata={"asin": asin, "type": "review"},
-                            ))
-
+                        reviews.extend(batch[:max_results - len(reviews)])
                         await asyncio.sleep(random.uniform(0.5, 1))
                     except Exception as exc:
-                        logger.warning("ScraperAPI reviews failed for %s page %d: %s", asin, page_num, exc)
+                        logger.warning("ScraperAPI reviews failed for %s p%d: %s", asin, page_num, exc)
                         break
 
         logger.info("Collected %d reviews from Amazon (ScraperAPI)", len(reviews))
         return reviews[:max_results]
+
+    def _parse_reviews_html(self, html: str, asin: str) -> list[Review]:
+        """Parse Amazon product-reviews HTML into Review objects."""
+        soup = BeautifulSoup(html, "lxml")
+        reviews = []
+
+        product_name = ""
+        link = soup.select_one('[data-hook="product-link"]')
+        if link:
+            product_name = link.get_text(strip=True)
+
+        for card in soup.select('[data-hook="review"]'):
+            body_el = card.select_one('[data-hook="review-body"] span')
+            body = body_el.get_text(strip=True) if body_el else ""
+            if len(body) < 20:
+                continue
+            title_el = card.select_one('[data-hook="review-title"] span:not(.a-icon-alt)')
+            title = title_el.get_text(strip=True) if title_el else ""
+            full_text = f"{title}\n\n{body}" if title else body
+
+            author_el = card.select_one("span.a-profile-name")
+            rating = None
+            rating_el = card.select_one('[data-hook="review-star-rating"] .a-icon-alt')
+            if rating_el:
+                try:
+                    rating = float(rating_el.get_text().split()[0])
+                except (ValueError, IndexError):
+                    pass
+
+            reviews.append(Review(
+                id=f"amazon_{card.get('id', f'{asin}_{len(reviews)}')}",
+                source=SourceType.AMAZON,
+                author=author_el.get_text(strip=True) if author_el else None,
+                text=full_text,
+                rating=rating,
+                date=None,
+                url=f"https://www.amazon.com/product-reviews/{asin}",
+                product_name=product_name or None,
+                metadata={"asin": asin, "type": "review"},
+            ))
+        return reviews
 
     # --- Direct httpx fallback (works locally, blocked on cloud IPs) ---
 
