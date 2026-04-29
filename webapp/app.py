@@ -145,6 +145,10 @@ async def stream_job(job_id: str):
 
 @app.get("/api/jobs/{job_id}/export/{format}")
 async def download_export(job_id: str, format: str):
+    import io
+    import zipfile
+    from webapp.jobs import _get_exporter
+
     job = get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -163,9 +167,38 @@ async def download_export(job_id: str, format: str):
     if format not in format_files:
         raise HTTPException(status_code=400, detail=f"Unknown format: {format}")
 
+    def _regenerate_export(fmt: str) -> None:
+        """Regenerate an export file from persisted analysis.json + reviews.json."""
+        from models.schemas import AnalysisResult, Review
+
+        analysis_path = out_path / "analysis.json"
+        if not analysis_path.exists():
+            raise FileNotFoundError("analysis.json not found — cannot regenerate export")
+
+        result_json = analysis_path.read_text(encoding="utf-8")
+        result = AnalysisResult.model_validate_json(result_json)
+
+        reviews: list[Review] = []
+        reviews_path = out_path / "reviews.json"
+        if reviews_path.exists():
+            reviews_data = json.loads(reviews_path.read_text(encoding="utf-8"))
+            reviews = [Review.model_validate(r) for r in reviews_data]
+
+        exporter = _get_exporter(fmt)
+        exporter.export(result, reviews, out_path)
+
     filename = format_files[format]
     if filename:
         file_path = out_path / filename
+        if not file_path.exists():
+            # Try to regenerate from persisted analysis data
+            try:
+                _regenerate_export(format)
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Export file not found and could not be regenerated: {exc}",
+                )
         if not file_path.exists():
             raise HTTPException(status_code=404, detail=f"Export file not found: {filename}")
         return FileResponse(
@@ -173,18 +206,25 @@ async def download_export(job_id: str, format: str):
             filename=f"{job.query[:40]}_{format}.{filename.split('.')[-1]}",
         )
     else:
-        # ZIP CSV files
-        import io
-        import zipfile
-        buf = io.BytesIO()
+        # CSV: zip all .csv files, regenerating if needed
         csv_files = list(out_path.glob("*.csv"))
         if not csv_files:
+            try:
+                _regenerate_export("csv")
+                csv_files = list(out_path.glob("*.csv"))
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No CSV files found and could not be regenerated: {exc}",
+                )
+        if not csv_files:
             raise HTTPException(status_code=404, detail="No CSV files found")
+
+        buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for f in csv_files:
                 zf.write(f, f.name)
         buf.seek(0)
-        from fastapi.responses import StreamingResponse
         return StreamingResponse(
             buf,
             media_type="application/zip",

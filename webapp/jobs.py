@@ -1,4 +1,4 @@
-"""In-memory job store for async analysis jobs."""
+"""In-memory job store for async analysis jobs, with disk persistence."""
 from __future__ import annotations
 
 import asyncio
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 _root = Path(__file__).parent.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
+
+_JOBS_PERSIST_FILE = _root / "output" / "_jobs_state.json"
 
 
 class JobStatus(str, Enum):
@@ -58,6 +60,44 @@ class JobState(BaseModel):
 # Global job store
 _jobs: dict[str, JobState] = {}
 _queues: dict[str, asyncio.Queue] = {}
+
+
+def _save_jobs_state() -> None:
+    """Persist finished job states to disk so they survive server restarts."""
+    try:
+        _JOBS_PERSIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        for jid, job in _jobs.items():
+            if job.status in (JobStatus.DONE, JobStatus.ERROR):
+                d = job.model_dump(mode="json")
+                d.pop("events", None)  # events are large and not needed for downloads
+                data[jid] = d
+        _JOBS_PERSIST_FILE.write_text(json.dumps(data, default=str), encoding="utf-8")
+    except Exception:
+        logger.debug("Failed to persist jobs state", exc_info=True)
+
+
+def _load_jobs_state() -> None:
+    """Reload persisted job states from disk on startup."""
+    if not _JOBS_PERSIST_FILE.exists():
+        return
+    try:
+        data = json.loads(_JOBS_PERSIST_FILE.read_text(encoding="utf-8"))
+        for jid, d in data.items():
+            if jid not in _jobs:
+                try:
+                    job = JobState.model_validate(d)
+                    _jobs[jid] = job
+                    # No live queue needed for already-finished jobs
+                except Exception:
+                    logger.debug("Could not reload job %s from disk", jid[:8])
+        logger.info("Reloaded %d finished jobs from disk", len(data))
+    except Exception:
+        logger.debug("Failed to load persisted jobs state", exc_info=True)
+
+
+# Load persisted jobs at module import time
+_load_jobs_state()
 
 
 def create_job(
@@ -145,7 +185,8 @@ async def run_job(job_id: str):
         return re.sub(r"[^\w\-]+", "_", text.lower()).strip("_")[:60]
 
     slug = _slugify(job.query)
-    out_path = Path(settings.output_dir) / slug
+    # Include job_id prefix so each job gets its own directory (survives re-runs of same query)
+    out_path = Path(settings.output_dir) / f"{job_id[:8]}_{slug}"
     out_path.mkdir(parents=True, exist_ok=True)
     job.output_dir = str(out_path)
 
@@ -222,6 +263,7 @@ async def run_job(job_id: str):
 
         job.status = JobStatus.DONE
         job.finished_at = datetime.now()
+        _save_jobs_state()
 
         done_event = ProgressEvent(
             type="done",
@@ -235,6 +277,7 @@ async def run_job(job_id: str):
         job.status = JobStatus.ERROR
         job.error = str(e)
         job.finished_at = datetime.now()
+        _save_jobs_state()
         err_event = ProgressEvent(
             type="error",
             message=f"Job failed: {e}",
