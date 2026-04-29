@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import re
+from urllib.parse import quote_plus
 
 import httpx
 from bs4 import BeautifulSoup
@@ -30,7 +31,7 @@ class AmazonCollector(BaseCollector):
 
     def _proxy_url(self, target_url: str) -> str:
         """Wrap a URL through ScraperAPI's basic proxy (works on all tiers)."""
-        return f"{_SCRAPERAPI_URL}?api_key={self.settings.scraperapi_key}&url={target_url}&country_code=us"
+        return f"{_SCRAPERAPI_URL}?api_key={self.settings.scraperapi_key}&url={quote_plus(target_url)}&country_code=us"
 
     async def collect(self, query: str, max_results: int = 200) -> list[Review]:
         if self.settings.has_scraperapi():
