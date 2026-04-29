@@ -42,6 +42,20 @@ class TrustpilotCollector(BaseCollector):
                 biz_urls = await self._extract_business_urls(page)
                 logger.debug("Found %d Trustpilot businesses for: %s", len(biz_urls), query)
 
+                # Filter to businesses whose slug/name actually matches the query.
+                # Trustpilot's search sometimes autocorrects (e.g. "nello" → "nelly").
+                # Use the first word of the query as the primary match token.
+                primary = query.strip().lower().split()[0]
+                matched = [u for u in biz_urls if primary in u.lower()]
+                if matched:
+                    biz_urls = matched
+                    logger.debug("Filtered to %d businesses matching '%s'", len(biz_urls), primary)
+                else:
+                    logger.warning(
+                        "Trustpilot: no businesses matched '%s' — using top result as fallback", primary
+                    )
+                    biz_urls = biz_urls[:1]  # use top result rather than nothing
+
                 if not biz_urls:
                     logger.warning("Trustpilot: no businesses found for query '%s'", query)
                     return []
