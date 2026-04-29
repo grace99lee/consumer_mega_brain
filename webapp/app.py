@@ -26,7 +26,7 @@ app = FastAPI(title="Consumer Insights Synthesizer", version="0.1.0")
 _static = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_static)), name="static")
 
-ALL_SOURCES = ["reddit", "youtube", "amazon", "trustpilot", "google_maps", "quora"]
+ALL_SOURCES = ["reddit", "youtube", "amazon", "trustpilot", "quora"]
 ALL_EXPORTS = ["markdown", "csv", "powerpoint", "excel"]
 
 
