@@ -22,10 +22,18 @@ class QuoraCollector(BaseCollector):
     source_type = SourceType.QUORA
 
     def is_available(self) -> bool:
-        return True
+        try:
+            import playwright  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
     async def collect(self, query: str, max_results: int = 200) -> list[Review]:
-        return await run_in_playwright_thread(lambda: self._collect_playwright(query, max_results))
+        try:
+            return await run_in_playwright_thread(lambda: self._collect_playwright(query, max_results))
+        except Exception as exc:
+            logger.warning("Quora Playwright unavailable: %s", exc)
+            return []
 
     async def _collect_playwright(self, query: str, max_results: int) -> list[Review]:
         reviews: list[Review] = []
