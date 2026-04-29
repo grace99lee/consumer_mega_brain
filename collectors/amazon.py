@@ -49,11 +49,20 @@ class AmazonCollector(BaseCollector):
                     f"{_SCRAPERAPI_BASE}/search",
                     params={"api_key": api_key, "query": query, "page": "1"},
                 )
+                logger.debug("ScraperAPI search status: %d", resp.status_code)
                 if resp.status_code != 200:
-                    logger.warning("ScraperAPI Amazon search returned %d", resp.status_code)
+                    logger.warning("ScraperAPI Amazon search returned %d: %s", resp.status_code, resp.text[:300])
                     return []
                 data = resp.json()
-                products = data.get("results", data.get("shopping_results", []))
+                logger.debug("ScraperAPI search keys: %s", list(data.keys()))
+                # Try all known field names for product results
+                products = (
+                    data.get("results")
+                    or data.get("shopping_results")
+                    or data.get("organic_results")
+                    or data.get("products")
+                    or []
+                )
             except Exception as exc:
                 logger.warning("ScraperAPI Amazon search failed: %s", exc)
                 return []
@@ -62,7 +71,7 @@ class AmazonCollector(BaseCollector):
             logger.debug("ScraperAPI found %d Amazon ASINs", len(asins))
 
             if not asins:
-                logger.warning("Amazon: no ASINs found via ScraperAPI for '%s'", query)
+                logger.warning("Amazon: no ASINs found via ScraperAPI for '%s'. Keys returned: %s", query, list(data.keys()))
                 return []
 
             # Step 2: fetch reviews for each ASIN
@@ -80,8 +89,14 @@ class AmazonCollector(BaseCollector):
                         if resp.status_code != 200:
                             break
                         rdata = resp.json()
-                        product_name = rdata.get("product_name", "")
-                        review_list = rdata.get("reviews", [])
+                        logger.debug("ScraperAPI reviews keys for %s: %s", asin, list(rdata.keys()))
+                        product_name = rdata.get("product_name", "") or rdata.get("name", "")
+                        review_list = (
+                            rdata.get("reviews")
+                            or rdata.get("customer_reviews")
+                            or rdata.get("data", {}).get("reviews", [])
+                            or []
+                        )
 
                         if not review_list:
                             break

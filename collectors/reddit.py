@@ -4,14 +4,26 @@ import asyncio
 import logging
 import random
 import re
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
+
+import httpx
 
 from collectors.base import BaseCollector
-from collectors.playwright_utils import run_in_playwright_thread, stealth_browser
 from config.settings import Settings
 from models.schemas import Review, SourceType
 
 logger = logging.getLogger(__name__)
+
+# Atom namespace Reddit uses in its RSS feeds
+_ATOM = "http://www.w3.org/2005/Atom"
+
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 class RedditCollector(BaseCollector):
@@ -21,152 +33,170 @@ class RedditCollector(BaseCollector):
         return True
 
     async def collect(self, query: str, max_results: int = 200) -> list[Review]:
-        return await run_in_playwright_thread(
-            lambda: self._collect_playwright(query, max_results)
-        )
-
-    async def _collect_playwright(self, query: str, max_results: int) -> list[Review]:
+        """
+        Permanent approach: Reddit RSS feed for search + per-post JSON for comments.
+        RSS has been stable for 15+ years and is explicitly designed for machine
+        consumption. Per-post JSON (/r/sub/comments/id.json) is far less rate-limited
+        than the search API. Neither requires credentials or a browser.
+        """
         reviews: list[Review] = []
         seen_ids: set[str] = set()
 
-        async with stealth_browser() as (browser, context):
-            page = await context.new_page()
-            try:
-                search_url = (
-                    f"https://www.reddit.com/search/?q={query.replace(' ', '+')}"
-                    f"&sort=relevance&t=year&type=link"
-                )
-                logger.debug("Reddit search: %s", search_url)
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
-                await asyncio.sleep(random.uniform(2, 3))
+        async with httpx.AsyncClient(headers=_HEADERS, timeout=20, follow_redirects=True) as client:
+            posts = await self._rss_search(client, query, limit=25)
+            logger.debug("Reddit RSS returned %d posts for: %s", len(posts), query)
 
-                # Collect post links from search results
-                post_links = await self._extract_post_links(page)
-                logger.debug("Found %d Reddit post links", len(post_links))
+            if not posts:
+                logger.warning("Reddit RSS returned no posts for '%s'", query)
+                return []
 
-                if not post_links:
-                    logger.warning("Reddit: no posts found for '%s'", query)
+            for post in posts[:12]:
+                if len(reviews) >= max_results:
+                    break
 
-                for link in post_links[:15]:
-                    if len(reviews) >= max_results:
-                        break
+                # Add the post body if substantive
+                if post.get("body") and len(post["body"]) > 20:
+                    rid = f"reddit_post_{post['id']}"
+                    if rid not in seen_ids:
+                        reviews.append(Review(
+                            id=rid,
+                            source=SourceType.REDDIT,
+                            author=post.get("author"),
+                            text=post["body"],
+                            rating=None,
+                            date=post.get("date"),
+                            url=post["url"],
+                            product_name=None,
+                            metadata={
+                                "subreddit": post.get("subreddit", ""),
+                                "title": post.get("title", ""),
+                                "type": "post",
+                            },
+                        ))
+                        seen_ids.add(rid)
+
+                # Fetch top comments via per-post JSON
+                if len(reviews) < max_results:
                     try:
-                        batch = await self._scrape_post(page, link, seen_ids)
-                        reviews.extend(batch)
-                        for r in batch:
-                            seen_ids.add(r.id)
-                    except Exception as exc:
-                        logger.debug("Reddit post failed %s: %s", link, exc)
-                    await asyncio.sleep(random.uniform(1, 2))
+                        comments = await self._fetch_post_comments(client, post)
+                        for c in comments:
+                            if len(reviews) >= max_results:
+                                break
+                            if c.id not in seen_ids:
+                                reviews.append(c)
+                                seen_ids.add(c.id)
+                    except Exception:
+                        logger.debug("Could not fetch comments for %s", post["url"])
 
-            except Exception:
-                logger.exception("Reddit collection failed for query: %s", query)
-            finally:
-                await page.close()
+                await asyncio.sleep(random.uniform(0.5, 1.0))
 
         logger.info("Collected %d reviews from Reddit", len(reviews))
         return reviews[:max_results]
 
-    async def _extract_post_links(self, page) -> list[str]:
-        """Pull post URLs from a Reddit search results page."""
+    async def _rss_search(self, client: httpx.AsyncClient, query: str, limit: int) -> list[dict]:
+        """Fetch Reddit's search RSS feed — stable, cloud-friendly, no credentials needed."""
+        url = f"https://www.reddit.com/search.rss?q={quote_plus(query)}&sort=relevance&t=year&limit={min(limit, 25)}"
         try:
-            # New Reddit renders posts as <a> tags with /r/.../comments/ paths
-            links = await page.eval_on_selector_all(
-                'a[href*="/comments/"]',
-                'els => [...new Set(els.map(e => e.href))]'
-            )
-            # Keep only full reddit.com post URLs, strip query params
-            clean = []
-            seen: set[str] = set()
-            for link in links:
-                m = re.match(r'(https://www\.reddit\.com/r/[^/]+/comments/[^/?#]+)', link)
-                if m and m.group(1) not in seen:
-                    seen.add(m.group(1))
-                    clean.append(m.group(1))
-            return clean[:20]
+            resp = await client.get(url)
+            resp.raise_for_status()
+        except Exception as exc:
+            logger.warning("Reddit RSS fetch failed: %s", exc)
+            return []
+
+        posts = []
+        try:
+            root = ET.fromstring(resp.text)
+            for entry in root.findall(f"{{{_ATOM}}}entry"):
+                # Extract fields from Atom entry
+                title = _atom_text(entry, "title")
+                link_el = entry.find(f"{{{_ATOM}}}link")
+                url = link_el.get("href", "") if link_el is not None else ""
+                author_el = entry.find(f"{{{_ATOM}}}author/{{{_ATOM}}}name")
+                author = author_el.text.strip() if author_el is not None and author_el.text else None
+
+                date = None
+                pub_el = entry.find(f"{{{_ATOM}}}published")
+                if pub_el is not None and pub_el.text:
+                    try:
+                        date = datetime.fromisoformat(pub_el.text.replace("Z", "+00:00"))
+                    except ValueError:
+                        pass
+
+                # Reddit puts the post selftext in <content>; strip HTML tags
+                content_el = entry.find(f"{{{_ATOM}}}content")
+                body = ""
+                if content_el is not None and content_el.text:
+                    body = re.sub(r"<[^>]+>", " ", content_el.text).strip()
+                    body = re.sub(r"\s+", " ", body).strip()
+
+                # Extract subreddit and post ID from URL
+                # e.g. https://www.reddit.com/r/sub/comments/abc123/title/
+                subreddit = ""
+                post_id = ""
+                m = re.search(r"/r/([^/]+)/comments/([^/]+)/", url)
+                if m:
+                    subreddit = m.group(1)
+                    post_id = m.group(2)
+
+                if url and post_id:
+                    posts.append({
+                        "id": post_id,
+                        "title": title,
+                        "body": body,
+                        "author": author,
+                        "url": url,
+                        "subreddit": subreddit,
+                        "date": date,
+                    })
+        except ET.ParseError as exc:
+            logger.warning("Reddit RSS XML parse error: %s", exc)
+
+        return posts
+
+    async def _fetch_post_comments(self, client: httpx.AsyncClient, post: dict) -> list[Review]:
+        """Fetch top comments for a post using the per-post JSON endpoint."""
+        post_id = post.get("id", "")
+        subreddit = post.get("subreddit", "")
+        if not post_id or not subreddit:
+            return []
+
+        url = f"https://www.reddit.com/r/{subreddit}/comments/{post_id}.json?limit=20&depth=1&sort=top"
+        try:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            payload = resp.json()
         except Exception:
             return []
 
-    async def _scrape_post(self, page, url: str, seen_ids: set[str]) -> list[Review]:
-        """Visit a Reddit post page and collect the selftext + top comments."""
-        reviews: list[Review] = []
+        if not isinstance(payload, list) or len(payload) < 2:
+            return []
 
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        await asyncio.sleep(random.uniform(1.5, 2.5))
-
-        # Extract post metadata from URL
-        # e.g. /r/AskReddit/comments/abc123/title_slug/
-        subreddit = ""
-        m = re.search(r'/r/([^/]+)/comments/', url)
-        if m:
-            subreddit = m.group(1)
-
-        post_title = ""
-        try:
-            h1 = await page.query_selector('h1')
-            if h1:
-                post_title = (await h1.inner_text()).strip()
-        except Exception:
-            pass
-
-        # Post body (selftext)
-        try:
-            body_el = await page.query_selector('[data-testid="post-container"] [data-click-id="text"]')
-            if not body_el:
-                body_el = await page.query_selector('.Post [data-click-id="text"]')
-            if body_el:
-                body = (await body_el.inner_text()).strip()
-                if len(body) > 30:
-                    post_id = re.search(r'/comments/([^/]+)/', url)
-                    rid = f"reddit_post_{post_id.group(1) if post_id else hash(url)}"
-                    if rid not in seen_ids:
-                        reviews.append(Review(
-                            id=rid,
-                            source=SourceType.REDDIT,
-                            author=None,
-                            text=body,
-                            rating=None,
-                            date=None,
-                            url=url,
-                            product_name=None,
-                            metadata={"subreddit": subreddit, "title": post_title, "type": "post"},
-                        ))
-        except Exception:
-            pass
-
-        # Comments
-        try:
-            comment_els = await page.query_selector_all('[data-testid="comment"]')
-            if not comment_els:
-                # Fallback selector for newer Reddit layout
-                comment_els = await page.query_selector_all('div[id^="t1_"]')
-
-            for i, el in enumerate(comment_els[:20]):
-                try:
-                    text_el = await el.query_selector('p, [data-click-id="text"]')
-                    if not text_el:
-                        continue
-                    text = (await text_el.inner_text()).strip()
-                    if len(text) < 20 or text in ("[deleted]", "[removed]"):
-                        continue
-
-                    cid = await el.get_attribute("id") or f"reddit_comment_{hash(url)}_{i}"
-                    rid = f"reddit_{cid}"
-                    if rid not in seen_ids:
-                        reviews.append(Review(
-                            id=rid,
-                            source=SourceType.REDDIT,
-                            author=None,
-                            text=text,
-                            rating=None,
-                            date=None,
-                            url=url,
-                            product_name=None,
-                            metadata={"subreddit": subreddit, "post_title": post_title, "type": "comment"},
-                        ))
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
+        reviews = []
+        children = payload[1].get("data", {}).get("children", [])
+        for child in children:
+            cdata = child.get("data", {})
+            body = cdata.get("body", "").strip()
+            if not body or body in ("[deleted]", "[removed]") or len(body) < 20:
+                continue
+            reviews.append(Review(
+                id=f"reddit_comment_{cdata.get('id', '')}",
+                source=SourceType.REDDIT,
+                author=cdata.get("author"),
+                text=body,
+                rating=None,
+                date=datetime.fromtimestamp(cdata["created_utc"], tz=timezone.utc) if cdata.get("created_utc") else None,
+                url=post["url"],
+                product_name=None,
+                metadata={
+                    "subreddit": subreddit,
+                    "post_title": post.get("title", ""),
+                    "score": cdata.get("score", 0),
+                    "type": "comment",
+                },
+            ))
         return reviews
+
+
+def _atom_text(element, tag: str) -> str:
+    el = element.find(f"{{{_ATOM}}}{tag}")
+    return el.text.strip() if el is not None and el.text else ""
