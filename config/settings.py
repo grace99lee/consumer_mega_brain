@@ -23,6 +23,7 @@ class Settings:
 
     # Scraping
     proxy_url: str = ""
+    scraperapi_key: str = ""
 
     # Defaults
     default_ai_provider: str = "claude"
@@ -41,6 +42,9 @@ class Settings:
 
     def has_openai(self) -> bool:
         return bool(self.openai_api_key)
+
+    def has_scraperapi(self) -> bool:
+        return bool(self.scraperapi_key)
 
     @property
     def available_sources(self) -> list[str]:
@@ -69,6 +73,7 @@ def load_settings(env_path: str | Path | None = None) -> Settings:
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
         proxy_url=os.getenv("PROXY_URL", ""),
+        scraperapi_key=os.getenv("SCRAPERAPI_KEY", ""),
         default_ai_provider=os.getenv("DEFAULT_AI_PROVIDER", "claude"),
         default_max_reviews=int(os.getenv("DEFAULT_MAX_REVIEWS", "500")),
         default_batch_size=int(os.getenv("DEFAULT_BATCH_SIZE", "50")),
